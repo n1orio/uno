@@ -102,9 +102,9 @@ public final class LodWorld implements AutoCloseable {
             int[][] neighbors = new int[6][];
             for (int d = 0; d < 6; d++) {
                 LodSection neighbor = this.store.get(neighborKey(key, d));
-                neighbors[d] = neighbor == null ? null : Mesher.plane(neighbor.data, d);
+                neighbors[d] = neighbor == null ? null : neighbor.plane(d);
             }
-            MeshJob job = new MeshJob(key, section.version, section.data.clone(), neighbors, priority, this.order.getAndIncrement());
+            MeshJob job = new MeshJob(key, section.version, section.toArray(), neighbors, priority, this.order.getAndIncrement());
             this.meshers.execute(new PrioritizedTask(job, () -> this.runMesh(job)));
         });
     }

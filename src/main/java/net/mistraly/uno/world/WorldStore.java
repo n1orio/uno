@@ -84,7 +84,8 @@ public final class WorldStore {
         if (section.isEmpty()) {
             region.remove(section.key);
         } else {
-            region.put(section.key, SectionCodec.encode(section.data));
+            region.put(section.key, SectionCodec.encode(section.toArray()));
+            section.compact();
         }
         section.dirty = false;
     }

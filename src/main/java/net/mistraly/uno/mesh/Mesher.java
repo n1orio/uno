@@ -98,7 +98,7 @@ public final class Mesher {
     }
 
     /// Voxel coordinates of (slice, u, v) for direction d.
-    private static int index(int d, int s, int u, int v) {
+    public static int index(int d, int s, int u, int v) {
         return switch (d) {
             case 0, 1 -> LodKey.index(u, s, v);
             case 2, 3 -> LodKey.index(u, v, s);

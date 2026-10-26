@@ -14,7 +14,7 @@
   "uno.options.lodDistance.tooltip": "How far LODs are drawn. Only land you have already visited is shown.",
   "uno.options.detailDistance.tooltip": "How far past the render distance LODs keep full 1-block detail. Each coarser level doubles the distance. Higher values cost more GPU memory and meshing time.",
   "uno.options.gpuMemoryMb.tooltip": "Size of the buffer holding LOD geometry on the GPU. Applied when you next join a world.",
-  "uno.options.sectionCache.tooltip": "Voxel sections kept in RAM (128 KB each). Applied when you next join a world.",
+  "uno.options.sectionCache.tooltip": "Voxel sections kept in RAM, packed (a few bytes when empty, typically 10-40 KB for terrain). Applied when you next join a world.",
   "uno.configuration.textureDistance": "Block texture distance",
   "uno.options.chunks": "%s chunks",
   "uno.options.textureDistance.tooltip": "LODs closer than this show real block textures; further away they use each block's average colour. Scaled up while zoomed in (spyglass)."

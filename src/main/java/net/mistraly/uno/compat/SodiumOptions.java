@@ -74,9 +74,9 @@ public final class SodiumOptions implements ConfigEntryPoint {
                         .setName(Component.translatable("uno.configuration.sectionCache"))
                         .setTooltip(Component.translatable("uno.options.sectionCache.tooltip"))
                         .setStorageHandler(save::run)
-                        .setRange(128, 16384, 128)
+                        .setRange(256, 65536, 256)
                         .setValueFormatter(value -> Component.literal(String.valueOf(value)))
                         .setBinding(UnoConfig.SECTION_CACHE::set, UnoConfig.SECTION_CACHE::get)
-                        .setDefaultValue(1024))));
+                        .setDefaultValue(4096))));
     }
 }

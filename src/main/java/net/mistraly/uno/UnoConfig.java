@@ -30,8 +30,8 @@ public final class UnoConfig {
         .defineInRange("modelMemoryMb", 128, 16, 2048);
 
     public static final ModConfigSpec.IntValue SECTION_CACHE = BUILDER
-        .comment("Voxel sections kept in memory (128 KB each)")
-        .defineInRange("sectionCache", 1024, 128, 16384);
+        .comment("Voxel sections kept in memory, packed (a few bytes for empty ones, typically 10-40 KB for terrain)")
+        .defineInRange("sectionCache", 4096, 128, 65536);
 
     public static final ModConfigSpec.IntValue MESH_THREADS = BUILDER
         .comment("Mesher threads, 0 = half the cores (1..4)")

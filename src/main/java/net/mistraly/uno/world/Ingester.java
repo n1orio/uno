@@ -49,10 +49,7 @@ public final class Ingester {
                     for (int x = 0; x < 16; x++) {
                         int voxel = column[(y << 8) | (z << 4) | x];
                         int index = LodKey.index(ox + x, oy + y, oz + z);
-                        if (target.data[index] != voxel) {
-                            target.data[index] = voxel;
-                            dirty = true;
-                        }
+                        dirty |= target.set(index, voxel);
                     }
                 }
             }
@@ -124,7 +121,7 @@ public final class Ingester {
         int px = (LodKey.x(childKey) & 1) * 16;
         int py = (LodKey.y(childKey) & 1) * 16;
         int pz = (LodKey.z(childKey) & 1) * 16;
-        int[] source = child == null ? null : child.data;
+        LodSection source = child;
         int[] group = new int[8];
         boolean dirty = false;
         for (int y = 0; y < 16; y++) {
@@ -139,17 +136,14 @@ public final class Ingester {
                         for (int dy = 1; dy >= 0; dy--) {
                             for (int dz = 0; dz < 2; dz++) {
                                 for (int dx = 0; dx < 2; dx++) {
-                                    group[n++] = source[LodKey.index(x * 2 + dx, y * 2 + dy, z * 2 + dz)];
+                                    group[n++] = source.get(LodKey.index(x * 2 + dx, y * 2 + dy, z * 2 + dz));
                                 }
                             }
                         }
                         voxel = this.mip(group);
                     }
                     int index = LodKey.index(px + x, py + y, pz + z);
-                    if (parent.data[index] != voxel) {
-                        parent.data[index] = voxel;
-                        dirty = true;
-                    }
+                    dirty |= parent.set(index, voxel);
                 }
             }
         }

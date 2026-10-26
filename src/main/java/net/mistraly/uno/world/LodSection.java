@@ -1,20 +1,32 @@
 package net.mistraly.uno.world;
 
-/// 32^3 voxels. Owned by the world thread; meshers only ever see copies.
+import net.mistraly.uno.mesh.Mesher;
+
+/// 32^3 voxels, kept packed (palette + bit-packed indices). Owned by the world thread; meshers only ever see copies.
 public final class LodSection {
     public final long key;
-    public final int[] data;
+    private PackedVoxels voxels;
     /// Bumped on every change so stale meshes can be recognised.
     public int version;
     public boolean dirty;
 
     public LodSection(long key, int[] data) {
         this.key = key;
-        this.data = data;
+        this.voxels = PackedVoxels.of(data);
     }
 
     public LodSection(long key) {
-        this(key, new int[LodKey.VOLUME]);
+        this.key = key;
+        this.voxels = PackedVoxels.filled(Voxel.AIR);
+    }
+
+    public int get(int index) {
+        return this.voxels.get(index);
+    }
+
+    /// Returns whether the voxel changed. Call {@link #touch()} after a batch of changes.
+    public boolean set(int index, int voxel) {
+        return this.voxels.set(index, voxel);
     }
 
     public void touch() {
@@ -22,12 +34,28 @@ public final class LodSection {
         this.dirty = true;
     }
 
+    public int[] toArray() {
+        return this.voxels.toArray();
+    }
+
     public boolean isEmpty() {
-        for (int voxel : this.data) {
-            if (Voxel.state(voxel) != Voxel.AIR) {
-                return false;
+        return this.voxels.isEmpty();
+    }
+
+    /// Drops palette entries that edits left unused.
+    public void compact() {
+        this.voxels = this.voxels.compacted();
+    }
+
+    /// The layer touching a neighbour lying in direction d, in that neighbour's (u, v) layout (see {@link Mesher}).
+    public int[] plane(int d) {
+        int s = (d & 1) == 1 ? 0 : LodKey.SIZE - 1;
+        int[] out = new int[LodKey.SIZE * LodKey.SIZE];
+        for (int v = 0; v < LodKey.SIZE; v++) {
+            for (int u = 0; u < LodKey.SIZE; u++) {
+                out[v * LodKey.SIZE + u] = this.voxels.get(Mesher.index(d, s, u, v));
             }
         }
-        return true;
+        return out;
     }
 }
