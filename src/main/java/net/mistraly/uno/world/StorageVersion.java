@@ -17,7 +17,8 @@ final class StorageVersion {
     /// 5: voxel layout with block light (16-bit state ids), full-cube test by solid render
     /// 6: sky light above the solid surface ignores leaves (no more black forest floors)
     /// 7: deep flowing water is kept (river beds no longer show through)
-    private static final int CURRENT = 7;
+    /// 8: missing child sections mip to sky-lit air (no more dark water and tree tops at section borders)
+    private static final int CURRENT = 8;
 
     private StorageVersion() {
     }

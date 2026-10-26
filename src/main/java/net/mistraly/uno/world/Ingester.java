@@ -17,6 +17,8 @@ public final class Ingester {
     private final IdTables ids;
     /// Receives every section key whose voxels changed.
     private final LongConsumer changed;
+    /// Air never captured (an all-air chunk section has no LOD section) is open sky in dimensions with one.
+    private int openAir = Voxel.pack(Voxel.AIR, 0, 15, 0);
 
     public Ingester(WorldStore store, IdTables ids, LongConsumer changed) {
         this.store = store;
@@ -25,6 +27,7 @@ public final class Ingester {
     }
 
     public void ingest(ChunkSnapshot chunk) {
+        this.openAir = Voxel.pack(Voxel.AIR, 0, chunk.hasSkyLight() ? 15 : 0, 0);
         LongSet touched = new LongOpenHashSet();
         int ox = (chunk.chunkX() & 1) * 16;
         int oz = (chunk.chunkZ() & 1) * 16;
@@ -162,7 +165,9 @@ public final class Ingester {
                 for (int x = 0; x < 16; x++) {
                     int voxel;
                     if (source == null) {
-                        voxel = Voxel.AIR;
+                        // a child that was never created is air; as plain 0 it had sky light 0, which made water
+                        // surfaces and tree tops at section borders below it render nearly black
+                        voxel = this.openAir;
                     } else {
                         // top layer first, so mip() prefers what is visible from above
                         int n = 0;

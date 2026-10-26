@@ -165,7 +165,9 @@ public final class Mesher {
                     }
                     byte neighborKind = known ? this.ids.kind(Voxel.state(neighbor)) : BlockKind.AIR;
                     boolean visible = !BlockKind.hides(selfKind, neighborKind);
-                    int sky = Voxel.sky(neighbor);
+                    // no neighbour section means nothing was ever captured there: open air, lit by the sky
+                    // (the voxel's own light is 0 inside opaque blocks and made such faces black)
+                    int sky = known ? Voxel.sky(neighbor) : 15;
                     int block = known ? Voxel.block(neighbor) : Voxel.block(self);
                     int ao = AO_OPEN;
                     if (!visible && outside && d >= 2 && selfKind == BlockKind.OPAQUE) {
