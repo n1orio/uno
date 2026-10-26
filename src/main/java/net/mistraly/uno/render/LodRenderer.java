@@ -688,7 +688,11 @@ public final class LodRenderer {
             return;
         }
         double near = horizontalDistance(camera, ox, oz, span, false);
-        if (near > distance || coveredByVanilla(key, camera, hole)) {
+        if (near > distance) {
+            return;
+        }
+        if (coveredByVanilla(key, camera, hole)) {
+            keepWarm(lodWorld, key, near);
             return;
         }
         if (!frustum.isVisible(new AABB(ox, oy, oz, ox + span, oy + span, oz + span))) {
@@ -729,6 +733,7 @@ public final class LodRenderer {
             return true;
         }
         if (coveredByVanilla(key, camera, hole)) {
+            keepWarm(lodWorld, key, priority);
             return true;
         }
         Node node = NODES.get(key);
@@ -743,6 +748,19 @@ public final class LodRenderer {
         }
         request(lodWorld, key, node, priority);
         return false;
+    }
+
+    /// A section vanilla draws right now is not drawn, but its mesh is kept ready (and up to date) so that when
+    /// the chunk unloads behind a moving player the LOD shows in the same frame instead of a gap.
+    /// Meshed after everything that is actually visible.
+    private static void keepWarm(LodWorld lodWorld, long key, double priority) {
+        Node node = NODES.get(key);
+        if (node != null) {
+            node.lastSeen = frameIndex;
+        }
+        if (node == null || !node.known || node.stale) {
+            request(lodWorld, key, node, priority + 1.0E6);
+        }
     }
 
     private static void draw(LodWorld lodWorld, long key, @Nullable Node node, double priority) {
