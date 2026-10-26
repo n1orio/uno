@@ -1,0 +1,21 @@
+{
+  "uno.configuration.title": "Uno",
+  "uno.configuration.enabled": "Включено",
+  "uno.configuration.lodDistance": "Дальность LOD",
+  "uno.configuration.detailDistance": "Дальность полной детализации",
+  "uno.configuration.gpuMemoryMb": "Видеопамять",
+  "uno.configuration.sectionCache": "Кэш воксельных секций",
+  "uno.configuration.meshThreads": "Потоки мешинга",
+  "uno.options.page": "Uno LOD",
+  "uno.options.memory": "Память",
+  "uno.options.blocks": "%s блоков",
+  "uno.options.megabytes": "%s МБ",
+  "uno.options.enabled.tooltip": "Дорисовывать упрощённый ландшафт за пределами дальности прорисовки.",
+  "uno.options.lodDistance.tooltip": "Как далеко рисуются LOD. Показывается только земля, где вы уже побывали.",
+  "uno.options.detailDistance.tooltip": "Насколько дальше прорисовки LOD сохраняют полную детализацию в 1 блок. Каждый следующий уровень удваивает расстояние. Больше значение — больше видеопамяти и времени на мешинг.",
+  "uno.options.gpuMemoryMb.tooltip": "Размер буфера с геометрией LOD на видеокарте. Применится при следующем входе в мир.",
+  "uno.options.sectionCache.tooltip": "Сколько воксельных секций держать в памяти (по 128 КБ). Применится при следующем входе в мир.",
+  "uno.configuration.textureDistance": "Дальность текстур блоков",
+  "uno.options.chunks": "%s чанков",
+  "uno.options.textureDistance.tooltip": "Ближе этого расстояния LOD рисуются настоящими текстурами блоков, дальше — средним цветом блока. В подзорной трубе расстояние растёт вместе с зумом."
+}

@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.mistraly.uno.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "CameraMixin",
+    "ClientLevelMixin",
+    "SectionVisibilityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
