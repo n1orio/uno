@@ -16,7 +16,8 @@ final class StorageVersion {
     /// 4: plants are stored (drawn with their models up close)
     /// 5: voxel layout with block light (16-bit state ids), full-cube test by solid render
     /// 6: sky light above the solid surface ignores leaves (no more black forest floors)
-    private static final int CURRENT = 6;
+    /// 7: deep flowing water is kept (river beds no longer show through)
+    private static final int CURRENT = 7;
 
     private StorageVersion() {
     }

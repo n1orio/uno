@@ -46,9 +46,11 @@ public final class BlockKind {
         }
         FluidState fluid = state.getFluidState();
         if (!fluid.isEmpty()) {
-            // thin flowing water would turn into staircases of full cubes; keep sources and waterfalls only
+            // Thin flowing water (the thin edges and the steps down a slope) would turn into staircases of full
+            // cubes, so it is dropped; deep flowing water (rivers, the area right around a source) and waterfalls
+            // stay, or the river bed would show through.
             boolean falling = fluid.hasProperty(FlowingFluid.FALLING) && fluid.getValue(FlowingFluid.FALLING);
-            if (!fluid.isSource() && !falling) {
+            if (!fluid.isSource() && !falling && fluid.getAmount() < 4) {
                 return AIR;
             }
             boolean ownModel = !(state.getBlock() instanceof LiquidBlock) && state.getRenderShape() != RenderShape.INVISIBLE;
