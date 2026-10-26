@@ -38,7 +38,7 @@ public final class UnoConfig {
         .defineInRange("sectionCache", 4096, 128, 65536);
 
     public static final ModConfigSpec.IntValue MESH_THREADS = BUILDER
-        .comment("Mesher threads, 0 = half the cores (1..4)")
+        .comment("Mesher threads, 0 = all cores but two (1..8)")
         .defineInRange("meshThreads", 0, 0, 16);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
@@ -51,6 +51,6 @@ public final class UnoConfig {
         if (configured > 0) {
             return configured;
         }
-        return Math.clamp(Runtime.getRuntime().availableProcessors() / 2, 1, 4);
+        return Math.clamp(Runtime.getRuntime().availableProcessors() - 2, 1, 8);
     }
 }

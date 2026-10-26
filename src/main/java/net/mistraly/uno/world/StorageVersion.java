@@ -15,7 +15,8 @@ final class StorageVersion {
     /// 3: sky light from the heightmap, flowing water dropped
     /// 4: plants are stored (drawn with their models up close)
     /// 5: voxel layout with block light (16-bit state ids), full-cube test by solid render
-    private static final int CURRENT = 5;
+    /// 6: sky light above the solid surface ignores leaves (no more black forest floors)
+    private static final int CURRENT = 6;
 
     private StorageVersion() {
     }

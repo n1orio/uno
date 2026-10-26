@@ -57,9 +57,9 @@ public final class LodRenderer {
     private static final int MODEL_COMMANDS = 4 * MAX_DRAWS;
     private static final int COMMAND_CAPACITY = 5 * MAX_DRAWS;
     private static final int FRAME_UBO_BYTES = 112;
-    private static final long UPLOAD_BUDGET = 8L * 1024 * 1024;
-    private static final int REQUEST_BUDGET = 256;
-    private static final int MAX_PENDING = 2048;
+    private static final long UPLOAD_BUDGET = 32L * 1024 * 1024;
+    private static final int REQUEST_BUDGET = 1024;
+    private static final int MAX_PENDING = 8192;
 
     public static final VertexFormat SECTION_FORMAT = VertexFormat.builder(1).addAttribute("SectionInfo", GpuFormat.RGBA32_SINT).build();
     private static final BindGroupLayout UNO_LAYOUT = BindGroupLayout.builder()
@@ -296,39 +296,102 @@ public final class LodRenderer {
         }
     }
 
+    private static long prepareNanos;
+
     public static void onPrepare(PrepareRenderBuffersEvent event) {
-        drawCount = 0;
-        opaqueCommands = 0;
-        waterCount = 0;
-        modelDraws = 0;
+        long started = System.nanoTime();
+        try {
+            prepare(event);
+        } finally {
+            prepareNanos += System.nanoTime() - started;
+        }
+    }
+
+    private static @Nullable Vec3 lastSelectPosition;
+    private static float lastSelectXRot;
+    private static float lastSelectYRot;
+    private static double lastSelectZoom;
+    private static long lastSelectFrame = -1000;
+
+    private static void prepare(PrepareRenderBuffersEvent event) {
         LodWorld lodWorld = world;
         QuadArena quadArena = arena;
         FrameBuffers buffers = frame;
         if (lodWorld == null || quadArena == null || buffers == null || !UnoConfig.ENABLED.get()) {
+            drawCount = 0;
             return;
         }
         frameIndex++;
-        drainChanges(lodWorld);
-        uploadMeshes(lodWorld);
+        int changes = drainChanges(lodWorld);
+        int uploads = uploadMeshes(lodWorld);
         // after the meshes: they may reference materials their meshers just added
         if (materials != null) {
             materials.sync();
         }
 
         CameraRenderState camera = event.getLevelRenderState().cameraRenderState;
-        if (mask != null) {
-            mask.update(camera.pos, holeRadius());
-        }
+        boolean maskChanged = mask != null && mask.update(camera.pos, holeRadius());
         currentZoom = zoom(camera);
-        select(lodWorld, camera.pos, camera.cullFrustum, currentZoom);
         if (frameIndex % 120 == 0) {
             forgetUnused();
         }
+        // The draw list only changes when the camera moved or turned noticeably, or something new arrived;
+        // otherwise last frame's instance and command buffers are drawn again and only the camera UBO is written.
+        boolean moved = lastSelectPosition == null
+            || camera.pos.distanceToSqr(lastSelectPosition) > 0.25
+            || Math.abs(camera.xRot - lastSelectXRot) > 0.5F
+            || Math.abs(camera.yRot - lastSelectYRot) > 0.5F
+            || currentZoom != lastSelectZoom;
+        if (moved || changes > 0 || uploads > 0 || maskChanged || frameIndex - lastSelectFrame >= 20) {
+            lastSelectPosition = camera.pos;
+            lastSelectXRot = camera.xRot;
+            lastSelectYRot = camera.yRot;
+            lastSelectZoom = currentZoom;
+            lastSelectFrame = frameIndex;
+            select(lodWorld, camera.pos, camera.cullFrustum, currentZoom);
+            writeDrawList(buffers, camera);
+        }
+        if (drawCount == 0) {
+            return;
+        }
+        // with Improved Transparency (OIT) the classic translucent stage does not exist; draw water right after
+        // the opaque LODs instead, still blended
+        waterInOpaquePass = Minecraft.getInstance().gameRenderer.useImprovedTransparency();
+        if (frameIndex % 600 == 0) {
+            Uno.LOGGER.debug("Uno: {} nodes, {} pending, {} draws ({} culled, {} opaque cmds, {} water, {} models), {} / {} quads, {} model quads on GPU, zoom {}, {} ms/frame CPU",
+                NODES.size(), pendingCount, drawCount, culledThisFrame, opaqueCommands, waterCount, modelDraws, quadArena.used(), quadArena.capacity,
+                modelArena == null ? 0 : modelArena.used(), String.format("%.2f", currentZoom), String.format("%.3f", prepareNanos / 600.0 / 1.0E6));
+            prepareNanos = 0;
+        }
+
+        buffers.frameUbo.rotate();
+        try (GpuBufferSlice.MappedView ubo = buffers.frameUbo.currentBuffer().slice(0, FRAME_UBO_BYTES).map(false, true)) {
+            ByteBuffer data = ubo.data().order(ByteOrder.nativeOrder());
+            camera.viewRotationMatrix.get(data);
+            data.position(64);
+            data.putFloat(holeRadius()).putFloat((float) (UnoConfig.TEXTURE_DISTANCE.get() * currentZoom)).putFloat(0).putFloat(0);
+            SectionMask sectionMask = mask;
+            boolean maskValid = sectionMask != null && sectionMask.valid;
+            data.putInt(maskValid ? sectionMask.originX * 16 : 0)
+                .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
+                .putInt(maskValid ? sectionMask.originZ * 16 : 0)
+                .putInt(maskValid ? sectionMask.size : 0);
+            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
+        }
+        RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
+    }
+
+    /// Writes the instance data and indirect commands of the sections chosen by {@link #select}.
+    private static void writeDrawList(FrameBuffers buffers, CameraRenderState camera) {
+        drawCount = 0;
+        opaqueCommands = 0;
+        waterCount = 0;
+        modelDraws = 0;
         if (DRAWS.isEmpty()) {
             return;
         }
-
-        buffers.rotate();
+        buffers.instances.rotate();
+        buffers.commands.rotate();
         drawCount = Math.min(DRAWS.size(), MAX_DRAWS);
         maxQuadsPerDraw = 0;
         // commands: opaque runs from 0 (up to 3 per section), fluid from WATER_COMMANDS, models from MODEL_COMMANDS
@@ -380,29 +443,6 @@ public final class LodRenderer {
                 maxQuadsPerDraw = Math.max(maxQuadsPerDraw, Math.max(node.fluidCount, node.modelCount));
             }
         }
-        // with Improved Transparency (OIT) the classic translucent stage does not exist; draw water right after
-        // the opaque LODs instead, still blended
-        waterInOpaquePass = Minecraft.getInstance().gameRenderer.useImprovedTransparency();
-        if (frameIndex % 600 == 0) {
-            Uno.LOGGER.debug("Uno: {} nodes, {} pending, {} draws ({} culled, {} opaque cmds, {} water, {} models), {} / {} quads, {} model quads on GPU, zoom {}",
-                NODES.size(), pendingCount, drawCount, culledThisFrame, opaqueCommands, waterCount, modelDraws, quadArena.used(), quadArena.capacity,
-                modelArena == null ? 0 : modelArena.used(), String.format("%.2f", currentZoom));
-        }
-
-        try (GpuBufferSlice.MappedView ubo = buffers.frameUbo.currentBuffer().slice(0, FRAME_UBO_BYTES).map(false, true)) {
-            ByteBuffer data = ubo.data().order(ByteOrder.nativeOrder());
-            camera.viewRotationMatrix.get(data);
-            data.position(64);
-            data.putFloat(holeRadius()).putFloat((float) (UnoConfig.TEXTURE_DISTANCE.get() * currentZoom)).putFloat(0).putFloat(0);
-            SectionMask sectionMask = mask;
-            boolean maskValid = sectionMask != null && sectionMask.valid;
-            data.putInt(maskValid ? sectionMask.originX * 16 : 0)
-                .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
-                .putInt(maskValid ? sectionMask.originZ * 16 : 0)
-                .putInt(maskValid ? sectionMask.size : 0);
-            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
-        }
-        RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
     }
 
     public static void onAfterOpaque(RenderLevelStageEvent.AfterOpaqueBlocks event) {
@@ -526,22 +566,26 @@ public final class LodRenderer {
 
     // ---------------------------------------------------------------- bookkeeping
 
-    private static void drainChanges(LodWorld lodWorld) {
+    private static int drainChanges(LodWorld lodWorld) {
         Long key;
+        int count = 0;
         while ((key = lodWorld.changedSections.poll()) != null) {
+            count++;
             Node node = NODES.get(key.longValue());
             if (node != null) {
                 node.stale = true;
             }
         }
+        return count;
     }
 
-    private static void uploadMeshes(LodWorld lodWorld) {
+    private static int uploadMeshes(LodWorld lodWorld) {
         QuadArena quadArena = arena;
         QuadArena models = modelArena;
         if (quadArena == null || models == null) {
-            return;
+            return 0;
         }
+        int processed = 0;
         LodWorld.MeshResult result;
         while ((result = lodWorld.meshResults.poll()) != null) {
             BACKLOG.add(result);
@@ -549,6 +593,7 @@ public final class LodRenderer {
         long uploaded = 0;
         while (!BACKLOG.isEmpty() && uploaded < UPLOAD_BUDGET) {
             result = BACKLOG.poll();
+            processed++;
             Node node = NODES.computeIfAbsent(result.key(), k -> new Node());
             if (node.pending) {
                 node.pending = false;
@@ -585,6 +630,7 @@ public final class LodRenderer {
             }
             result.free();
         }
+        return processed;
     }
 
     /// Occluder height in world y. Coarse levels round terrain up (a voxel is solid if any block in it is),

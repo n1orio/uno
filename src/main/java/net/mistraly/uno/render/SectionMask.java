@@ -15,7 +15,6 @@ import org.lwjgl.system.MemoryUtil;
 final class SectionMask implements AutoCloseable {
     /// Largest render distance the buffer is sized for, in chunks.
     private static final int MAX_RADIUS = 66;
-    private static final int UPDATE_EVERY = 3;
 
     private final int minSection;
     private final int sections;
@@ -29,7 +28,6 @@ final class SectionMask implements AutoCloseable {
     int originZ;
     int size;
     boolean valid;
-    private long frame;
 
     SectionMask(int minY, int maxY) {
         this.minSection = Math.floorDiv(minY, 16);
@@ -48,32 +46,54 @@ final class SectionMask implements AutoCloseable {
         return this.sections;
     }
 
-    /// Re-reads which sections are drawn (every few frames). `hole` is the render distance in blocks: sections
-    /// further above or below the camera than that are not drawn by vanilla even when built.
-    void update(Vec3 camera, int hole) {
-        if (this.valid && this.frame++ % UPDATE_EVERY != 0) {
-            return;
-        }
+    /// Re-reads which sections are drawn, every frame. A built section only counts when it also passes Sodium's
+    /// (and vanilla's) distance test: chunks the player just left stay loaded and built for a while but are no
+    /// longer drawn, and cutting the LOD there left gaps.
+    /// Returns whether anything changed since the last update.
+    boolean update(Vec3 camera, int hole) {
+        boolean changed = !this.valid;
         int radius = Math.min(hole / 16 + 1, MAX_RADIUS);
         int side = radius * 2 + 1;
         int cameraChunkX = Math.floorDiv((int) Math.floor(camera.x), 16);
         int cameraChunkZ = Math.floorDiv((int) Math.floor(camera.z), 16);
-        this.originX = cameraChunkX - radius;
-        this.originZ = cameraChunkZ - radius;
+        int originX = cameraChunkX - radius;
+        int originZ = cameraChunkZ - radius;
+        changed |= originX != this.originX || originZ != this.originZ || side != this.size;
+        this.originX = originX;
+        this.originZ = originZ;
         this.size = side;
+        float limit = hole;
         for (int sy = 0; sy < this.sections; sy++) {
             int sectionY = this.minSection + sy;
-            boolean inHeight = Math.abs(sectionY * 16 + 8 - camera.y) <= hole + 8;
+            double ny = nearestToZero(sectionY * 16 - 1 - camera.y, sectionY * 16 + 17 - camera.y);
+            boolean inHeight = Math.abs(ny) < limit;
             for (int dz = 0; dz < side; dz++) {
+                double nz = nearestToZero((this.originZ + dz) * 16 - 1 - camera.z, (this.originZ + dz) * 16 + 17 - camera.z);
                 for (int dx = 0; dx < side; dx++) {
-                    boolean drawn = inHeight && this.built(this.originX + dx, sectionY, this.originZ + dz);
-                    this.cpu.put((sy * side + dz) * side + dx, (byte) (drawn ? 1 : 0));
+                    double nx = nearestToZero((this.originX + dx) * 16 - 1 - camera.x, (this.originX + dx) * 16 + 17 - camera.x);
+                    // Sodium's test: nearest point of the (slightly grown) section box within a cylinder of the
+                    // render distance
+                    boolean inRange = inHeight && nx * nx + nz * nz < (double) limit * limit;
+                    boolean drawn = inRange && this.built(this.originX + dx, sectionY, this.originZ + dz);
+                    int index = (sy * side + dz) * side + dx;
+                    byte value = (byte) (drawn ? 1 : 0);
+                    if (this.cpu.get(index) != value) {
+                        this.cpu.put(index, value);
+                        changed = true;
+                    }
                 }
             }
         }
-        RenderSystem.getDevice().createCommandEncoder()
-            .writeToBuffer(this.buffer.slice(0, (long) side * side * this.sections), this.cpu.slice(0, side * side * this.sections));
+        if (changed) {
+            RenderSystem.getDevice().createCommandEncoder()
+                .writeToBuffer(this.buffer.slice(0, (long) side * side * this.sections), this.cpu.slice(0, side * side * this.sections));
+        }
         this.valid = true;
+        return changed;
+    }
+
+    private static double nearestToZero(double min, double max) {
+        return min > 0 ? min : (max < 0 ? max : 0);
     }
 
     private boolean built(int x, int y, int z) {

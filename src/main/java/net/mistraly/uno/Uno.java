@@ -41,8 +41,8 @@ public final class Uno {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     /// Light data reaches the client after the chunk itself, so freshly loaded chunks are captured a bit later.
-    private static final int LOAD_DELAY_TICKS = 40;
-    private static final int SNAPSHOTS_PER_TICK = 16;
+    private static final int LOAD_DELAY_TICKS = 20;
+    private static final int SNAPSHOTS_PER_TICK = 48;
 
     /// chunk pos -> tick at which to capture it
     private static final Long2LongLinkedOpenHashMap PENDING_LOADS = new Long2LongLinkedOpenHashMap();

@@ -30,6 +30,7 @@ public final class Ingester {
         int oz = (chunk.chunkZ() & 1) * 16;
         int defaultSky = chunk.hasSkyLight() ? 15 : 0;
         int[] column = new int[16 * 16 * 16];
+        int[] surface = chunk.hasSkyLight() ? this.solidSurface(chunk) : null;
 
         for (int i = 0; i < chunk.sections().length; i++) {
             int sectionY = chunk.minSectionY() + i;
@@ -37,7 +38,7 @@ public final class Ingester {
             LevelChunkSection section = chunk.sections()[i];
             DataLayer sky = chunk.skyLight()[i];
 
-            this.fill(column, section, sky, chunk.blockLight()[i], defaultSky, chunk.hasSkyLight() ? chunk.surface() : null, sectionY * 16);
+            this.fill(column, section, sky, chunk.blockLight()[i], defaultSky, surface, sectionY * 16);
             LodSection target = section == null ? this.store.get(key) : this.store.getOrCreate(key);
             if (target == null) {
                 continue;
@@ -74,11 +75,43 @@ public final class Ingester {
         level.forEach(this.changed::accept);
     }
 
-    /// Sky light of a block: the light engine's value, but at least 15 above the surface. Light data can still be
-    /// missing (all zeros) when a chunk is captured, which used to leave whole chunks black.
+    /// Per column, the y of the highest truly opaque block (leaves, plants and glass do not count), or MIN_VALUE.
+    /// Everything above it sees the sky.
+    private int[] solidSurface(ChunkSnapshot chunk) {
+        int[] surface = new int[256];
+        java.util.Arrays.fill(surface, Integer.MIN_VALUE);
+        int found = 0;
+        for (int i = chunk.sections().length - 1; i >= 0 && found < 256; i--) {
+            LevelChunkSection section = chunk.sections()[i];
+            if (section == null) {
+                continue;
+            }
+            int baseY = (chunk.minSectionY() + i) * 16;
+            PalettedContainer<BlockState> states = section.getStates();
+            for (int column = 0; column < 256; column++) {
+                if (surface[column] != Integer.MIN_VALUE) {
+                    continue;
+                }
+                int x = column & 15;
+                int z = column >> 4;
+                for (int y = 15; y >= 0; y--) {
+                    if (BlockKind.classify(states.get(x, y, z)) == BlockKind.OPAQUE) {
+                        surface[column] = baseY + y;
+                        found++;
+                        break;
+                    }
+                }
+            }
+        }
+        return surface;
+    }
+
+    /// Sky light of a block: the light engine's value, but at least 15 above the solid surface. Light data can still
+    /// be missing (all zeros) when a chunk is captured, which used to leave whole chunks black; the vanilla
+    /// heightmap counts leaves, so forest floors stayed black even with it.
     private static int skyLight(DataLayer sky, int defaultSky, int @org.jspecify.annotations.Nullable [] surface, int baseY, int x, int y, int z) {
         int light = sky == null ? defaultSky : sky.get(x, y, z);
-        if (surface != null && baseY + y > surface[x + z * 16]) {
+        if (surface != null && baseY + y > surface[x + (z << 4)]) {
             light = 15;
         }
         return light;
