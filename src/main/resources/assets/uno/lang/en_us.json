@@ -17,5 +17,7 @@
   "uno.options.sectionCache.tooltip": "Voxel sections kept in RAM, packed (a few bytes when empty, typically 10-40 KB for terrain). Applied when you next join a world.",
   "uno.configuration.textureDistance": "Block texture distance",
   "uno.options.chunks": "%s chunks",
-  "uno.options.textureDistance.tooltip": "LODs closer than this show real block textures; further away they use each block's average colour. Scaled up while zoomed in (spyglass)."
+  "uno.options.textureDistance.tooltip": "LODs closer than this show real block textures; further away they use each block's average colour. Scaled up while zoomed in (spyglass).",
+  "uno.configuration.occlusionCulling": "Hide LODs behind hills",
+  "uno.options.occlusionCulling.tooltip": "Skips LOD sections hidden behind terrain closer to you (a cheap CPU horizon test). Turn off if distant terrain pops in when you look over a ridge."
 }

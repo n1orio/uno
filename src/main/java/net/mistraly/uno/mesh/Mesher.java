@@ -32,8 +32,13 @@ public final class Mesher {
     private final IdTables ids;
     private int level;
     private final long[] mask = new long[S * S];
-    private final IntArrayList quads = new IntArrayList();
+    /// Opaque quads per face direction, so the renderer can skip directions facing away from the camera.
+    private final IntArrayList[] quads = {
+        new IntArrayList(), new IntArrayList(), new IntArrayList(), new IntArrayList(), new IntArrayList(), new IntArrayList()
+    };
     private final IntArrayList fluidQuads = new IntArrayList();
+    private final int[] directionCounts = new int[6];
+    private int occluderTop;
     private int fluidCount;
     /// Real model geometry (level 0 only), {@link #MODEL_VERTEX_BYTES} per vertex, 4 vertices per quad.
     private @Nullable ByteBuffer models;
@@ -52,6 +57,17 @@ public final class Mesher {
         return this.fluidCount;
     }
 
+    /// Height (in voxels from the section bottom) below which every column of the last section is opaque,
+    /// or -1 when some column has no opaque voxel. Used as an occluder for horizon culling.
+    public int occluderTop() {
+        return this.occluderTop;
+    }
+
+    /// Opaque quads per direction (DOWN, UP, NORTH, SOUTH, WEST, EAST) of the last buffer, stored in that order.
+    public int[] directionCounts() {
+        return this.directionCounts.clone();
+    }
+
     /// Model geometry of the last {@link #mesh} call, owned by the caller (free with MemoryUtil), or null.
     public @Nullable ByteBuffer takeModels() {
         ByteBuffer result = this.models;
@@ -65,13 +81,16 @@ public final class Mesher {
 
     /// `neighbors[d]` is the layer of the adjacent section touching face direction d, indexed `v * 32 + u`, or null.
     /// Returns a direct buffer owned by the caller (free with MemoryUtil), or null when the section has no faces.
-    /// Opaque quads come first, fluid quads (drawn translucent) last.
+    /// Opaque quads come first, grouped by direction, fluid quads (drawn translucent) last.
     public @Nullable ByteBuffer mesh(int[] data, @Nullable int[][] neighbors, int level) {
-        this.quads.clear();
+        for (IntArrayList list : this.quads) {
+            list.clear();
+        }
         this.fluidQuads.clear();
         this.models = null;
         this.modelCount = 0;
         this.level = level;
+        this.occluderTop = this.occluder(data);
         if (level == 0) {
             this.meshModels(data);
         }
@@ -83,12 +102,19 @@ public final class Mesher {
             }
         }
         this.fluidCount = this.fluidQuads.size() / 4;
-        if (this.quads.isEmpty() && this.fluidQuads.isEmpty()) {
+        int ints = this.fluidQuads.size();
+        for (int d = 0; d < 6; d++) {
+            this.directionCounts[d] = this.quads[d].size() / 4;
+            ints += this.quads[d].size();
+        }
+        if (ints == 0) {
             return null;
         }
-        ByteBuffer out = MemoryUtil.memAlloc((this.quads.size() + this.fluidQuads.size()) * 4).order(ByteOrder.LITTLE_ENDIAN);
-        for (int i = 0; i < this.quads.size(); i++) {
-            out.putInt(this.quads.getInt(i));
+        ByteBuffer out = MemoryUtil.memAlloc(ints * 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (IntArrayList list : this.quads) {
+            for (int i = 0; i < list.size(); i++) {
+                out.putInt(list.getInt(i));
+            }
         }
         for (int i = 0; i < this.fluidQuads.size(); i++) {
             out.putInt(this.fluidQuads.getInt(i));
@@ -162,6 +188,28 @@ public final class Mesher {
             }
         }
         return any;
+    }
+
+    /// The lowest column top over all 32x32 columns, counting only truly opaque voxels (not leaves).
+    /// Caves under a column top are ignored: seen from outside, the terrain surface hides them.
+    private int occluder(int[] data) {
+        int lowest = S;
+        for (int z = 0; z < S; z++) {
+            for (int x = 0; x < S; x++) {
+                int top = -1;
+                for (int y = S - 1; y >= 0; y--) {
+                    if (this.ids.kind(Voxel.state(data[LodKey.index(x, y, z)])) == BlockKind.OPAQUE) {
+                        top = y;
+                        break;
+                    }
+                }
+                if (top < 0) {
+                    return -1;
+                }
+                lowest = Math.min(lowest, top + 1);
+            }
+        }
+        return lowest;
     }
 
     /// Vanilla-style ambient occlusion of a face: for each corner, how many of the two edge neighbours and the
@@ -338,7 +386,7 @@ public final class Mesher {
         int sky = (int) (key >>> 32) & 15;
         int block = (int) (key >>> 36) & 15;
         int ao = (int) (key >>> 42) & 0xFF;
-        IntArrayList target = (key & FLUID) != 0 ? this.fluidQuads : this.quads;
+        IntArrayList target = (key & FLUID) != 0 ? this.fluidQuads : this.quads[d];
         target.add(x | (y << 5) | (z << 10) | ((w - 1) << 15) | ((h - 1) << 20) | (d << 25) | (sky << 28));
         target.add((int) key);
         target.add(block | (ao << 4));

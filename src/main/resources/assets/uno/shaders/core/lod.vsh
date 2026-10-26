@@ -8,7 +8,12 @@
 
 layout(std140) uniform UnoFrame {
     mat4 ModelViewMat;
+    // x = render distance in blocks, y = distance up to which block textures are drawn
     vec4 HoleParams;
+    // section mask: origin in blocks (xyz), side length in sections (w)
+    ivec4 MaskOrigin;
+    // x = sections in height, y = 1 when the mask is valid
+    ivec4 MaskInfo;
 };
 
 // 4 x uint32 per quad, see Mesher
@@ -26,6 +31,7 @@ layout(location = 3) out vec3 cameraOffset;
 layout(location = 4) out vec2 texCoord;
 layout(location = 5) flat out int materialIndex;
 layout(location = 6) flat out vec3 tint;
+layout(location = 7) out vec3 maskPos;
 
 // Unit-cube corners per face, same order and winding as the vanilla cloud mesh:
 // down, up, north (-z), south (+z), west (-x), east (+x); 4 corners each, bit i of the mask = corner i.
@@ -34,6 +40,7 @@ const int packedY = 0x6666F0;
 const int packedZ = 0xC3F066;
 
 const float faceShade[6] = float[](0.5, 1.0, 0.8, 0.8, 0.6, 0.6);
+const vec3 faceNormal[6] = vec3[](vec3(0, -1, 0), vec3(0, 1, 0), vec3(0, 0, -1), vec3(0, 0, 1), vec3(-1, 0, 0), vec3(1, 0, 0));
 
 void main() {
     int quadIndex = gl_VertexIndex >> 2;
@@ -71,6 +78,8 @@ void main() {
     sphericalVertexDistance = fog_spherical_distance(pos);
     cylindricalVertexDistance = fog_cylindrical_distance(pos);
     cameraOffset = pos;
+    // half a block into the voxel the face belongs to, so a face on a section border tests its own section
+    maskPos = local + vec3(SectionInfo.xyz - MaskOrigin.xyz) - faceNormal[dir] * 0.5;
 
     // Texture runs along the face's (u, v); on side faces v points down like vanilla block textures.
     // Horizontally it repeats every block; vertically on side faces it stretches over the whole voxel, so the

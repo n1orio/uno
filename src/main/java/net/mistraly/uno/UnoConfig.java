@@ -21,6 +21,10 @@ public final class UnoConfig {
         .comment("Block textures are drawn on LODs up to this distance (blocks, scaled by zoom); further away LODs use the texture's average colour")
         .defineInRange("textureDistance", 1024, 0, 16384);
 
+    public static final ModConfigSpec.BooleanValue OCCLUSION_CULLING = BUILDER
+        .comment("Skip LOD sections hidden behind hills and mountains (CPU horizon test)")
+        .define("occlusionCulling", true);
+
     public static final ModConfigSpec.IntValue GPU_MEMORY_MB = BUILDER
         .comment("Size of the GPU quad buffer, in MB (8 bytes per quad). Applied when joining a world")
         .defineInRange("gpuMemoryMb", 256, 32, 2048);

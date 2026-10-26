@@ -8,7 +8,12 @@
 
 layout(std140) uniform UnoFrame {
     mat4 ModelViewMat;
+    // x = render distance in blocks, y = distance up to which block textures are drawn
     vec4 HoleParams;
+    // section mask: origin in blocks (xyz), side length in sections (w)
+    ivec4 MaskOrigin;
+    // x = sections in height, y = 1 when the mask is valid
+    ivec4 MaskInfo;
 };
 
 uniform sampler2D Sampler2;
@@ -26,6 +31,7 @@ layout(location = 1) out float cylindricalVertexDistance;
 layout(location = 2) out vec4 vertexColor;
 layout(location = 3) out vec3 cameraOffset;
 layout(location = 4) out vec2 texCoord0;
+layout(location = 5) out vec3 maskPos;
 
 void main() {
     vec3 pos = Position + vec3(SectionInfo.xyz - CameraBlockPos) + CameraOffset;
@@ -35,6 +41,7 @@ void main() {
     sphericalVertexDistance = fog_spherical_distance(pos);
     cylindricalVertexDistance = fog_cylindrical_distance(pos);
     cameraOffset = pos;
+    maskPos = Position + vec3(SectionInfo.xyz - MaskOrigin.xyz);
     texCoord0 = UV0;
     vertexColor = vec4(Color.rgb, 1.0) * sample_lightmap(Sampler2, UV2);
 }
