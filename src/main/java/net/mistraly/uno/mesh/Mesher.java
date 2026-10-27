@@ -311,6 +311,12 @@ public final class Mesher {
                     // no neighbour section means nothing was ever captured there: open air, lit by the sky
                     // (the voxel's own light is 0 inside opaque blocks and made such faces black)
                     int sky = known ? Voxel.sky(neighbor) : 15;
+                    if (known && this.level > 0 && neighbor == 0) {
+                        // a bare zero on a coarse level is an octant no chunk was ever captured into (the parent is
+                        // created whole, its children one by one): open air, not unlit; tree tops and lakes next to
+                        // such octants turned black until zoomed in
+                        sky = 15;
+                    }
                     int block = known ? Voxel.block(neighbor) : Voxel.block(self);
                     if (BlockKind.fluid(selfKind)) {
                         // water is lit by its own light too: on coarse levels the voxel above the surface can be
