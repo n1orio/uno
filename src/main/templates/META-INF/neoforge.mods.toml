@@ -52,6 +52,11 @@ config="${mod_id}.sodium.mixins.json"
 # only when Sodium is installed
 requiredMods=["sodium"]
 
+[[mixins]]
+config="${mod_id}.vitrail.mixins.json"
+# only when Vitrail is installed: Uno answers for Distant Horizons there
+requiredMods=["vitrail"]
+
 # The [[accessTransformers]] block allows you to declare where your AT file is.
 # If this block is omitted, a fallback attempt will be made to load an AT from META-INF/accesstransformer.cfg
 #[[accessTransformers]]

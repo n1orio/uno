@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "net.mistraly.uno.mixin.vitrail",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "DhDepthMixin",
+    "DistantProgramMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

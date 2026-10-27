@@ -150,9 +150,9 @@ dependencies {
     // Sodium options page; the entry point class is only ever loaded by Sodium, so Uno still runs without it
     compileOnly "net.caffeinemc:sodium-neoforge-api:0.9.3-beta.1+mc26.3"
     sodiumBundle "maven.modrinth:sodium:SS023RVV"
-    // Vitrail (shader packs on Vulkan) with the DistantTerrain API, from the local fork until it is upstream;
-    // only Uno's compat bridge touches it, and only when Vitrail is installed
-    def vitrailJar = files('../vitrail-fork/neoforge/build/mc26.3/libs/vitrail-neoforge-0.13.0-beta+mc26.3.jar')
+    // Vitrail (shader packs on Vulkan), unmodified: Uno's bridge and mixins stand in for Distant Horizons there;
+    // only touched when Vitrail is installed
+    def vitrailJar = files('../vitrail-stock/neoforge/build/mc26.3/libs/vitrail-neoforge-0.13.0-beta+mc26.3.jar')
     compileOnly vitrailJar
     if (project.hasProperty('withVitrail')) {
         localRuntime vitrailJar

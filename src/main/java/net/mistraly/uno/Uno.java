@@ -57,12 +57,6 @@ public final class Uno {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
 
         modBus.addListener(LodRenderer::registerPipelines);
-        if (ModList.get().isLoaded("vitrail") && hasClass("dev.vitrail.api.DistantTerrain")) {
-            net.mistraly.uno.compat.VitrailBridge.register(
-                () -> UnoConfig.ENABLED.get() && LodRenderer.isActive(),
-                () -> UnoConfig.LOD_DISTANCE.get(),
-                () -> LodRenderer.farPlane());
-        }
         modBus.addListener(Uno::addReloadListener);
 
         NeoForge.EVENT_BUS.addListener(Uno::onLevelLoad);
@@ -72,17 +66,9 @@ public final class Uno {
         NeoForge.EVENT_BUS.addListener(Uno::onClientTick);
         NeoForge.EVENT_BUS.addListener(LodRenderer::onFog);
         NeoForge.EVENT_BUS.addListener(LodRenderer::onPrepare);
+        NeoForge.EVENT_BUS.addListener(LodRenderer::onAfterSky);
         NeoForge.EVENT_BUS.addListener(LodRenderer::onAfterOpaque);
         NeoForge.EVENT_BUS.addListener(LodRenderer::onAfterTranslucent);
-    }
-
-    private static boolean hasClass(String name) {
-        try {
-            Class.forName(name, false, Uno.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException | LinkageError e) {
-            return false;
-        }
     }
 
     private static void addReloadListener(AddClientReloadListenersEvent event) {
@@ -107,7 +93,7 @@ public final class Uno {
         LOGGER.info("Uno: opening LOD storage {}", dir);
         PENDING_LOADS.clear();
         LodWorld world = new LodWorld(dir, level.registryAccess().lookupOrThrow(Registries.BIOME), UnoConfig.SECTION_CACHE.get(), UnoConfig.meshThreads());
-        world.buildDistant = ModList.get().isLoaded("vitrail") && hasClass("dev.vitrail.api.DistantTerrain");
+        world.buildDistant = LodRenderer.VITRAIL;
         LodRenderer.attach(world, level.getMinY(), level.getMaxY() + 1);
     }
 
