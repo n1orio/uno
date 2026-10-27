@@ -180,7 +180,16 @@ public final class LodRenderer {
     private static int modelDraws;
     private static boolean waterInOpaquePass;
     /// Vitrail (shader packs on Vulkan) is installed, so its far terrain door is available. Checked once.
-    private static final boolean VITRAIL = net.neoforged.fml.ModList.get().isLoaded("vitrail");
+    private static final boolean VITRAIL = net.neoforged.fml.ModList.get().isLoaded("vitrail") && vitrailApi();
+
+    private static boolean vitrailApi() {
+        try {
+            Class.forName("dev.vitrail.api.DistantTerrain", false, LodRenderer.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
     /// Per-section data for Vitrail, rebuilt with the draw list: corner, and quad counts per half.
     private static int[] vitrailStarts = new int[0];
     private static int[] vitrailOpaque = new int[0];
