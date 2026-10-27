@@ -9,7 +9,7 @@ layout(std140) uniform UnoFrame {
     vec4 HoleParams;
     // section mask: origin in blocks (xyz), side length in sections (w)
     ivec4 MaskOrigin;
-    // x = sections in height, y = 1 when the mask is valid
+    // x = sections in height, y = 1 when the mask is valid, z = 1 when nothing is cut (shader pack)
     ivec4 MaskInfo;
 };
 
@@ -20,6 +20,10 @@ uniform usamplerBuffer UnoMask;
 // LODs are cut away where vanilla terrain is drawn: exactly per section once the mask exists, a render-distance
 // cylinder before that. `maskPos` is the position relative to the mask origin, `offset` relative to the camera.
 bool coveredByVanilla(vec3 maskPos, vec3 offset) {
+    if (MaskInfo.z != 0) {
+        // a shader pack is drawing: it dissolves the vanilla edge into the far terrain behind it, so nothing is cut
+        return false;
+    }
     if (MaskInfo.y == 0) {
         return length(offset.xz) < HoleParams.x && abs(offset.y) < HoleParams.x;
     }

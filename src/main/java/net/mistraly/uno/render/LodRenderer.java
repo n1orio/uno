@@ -203,6 +203,15 @@ public final class LodRenderer {
     private static GpuBuffer[] vitrailOpaqueBuffers = new GpuBuffer[0];
     private static GpuBuffer[] vitrailWaterBuffers = new GpuBuffer[0];
     private static boolean handedToVitrail;
+    /// With a pack drawing, LODs are not cut away under vanilla terrain: the pack dissolves the edge of the vanilla
+    /// chunks into the far terrain it expects behind them (Distant Horizons draws there), and vanilla paints over the
+    /// rest anyway. Cut away, the dissolved edge was a hole.
+    private static boolean packCut() {
+        return VITRAIL && net.mistraly.uno.compat.VitrailBridge.packActive();
+    }
+
+    /// This frame's sections are split: near ones drawn by Uno, far ones by the pack.
+    private static boolean splitForPack;
     private static int[] vitrailOpaque = new int[0];
     private static int[] vitrailWater = new int[0];
     private static int[] vitrailCornerX = new int[0];
@@ -426,7 +435,7 @@ public final class LodRenderer {
                 .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
                 .putInt(maskValid ? sectionMask.originZ * 16 : 0)
                 .putInt(maskValid ? sectionMask.size : 0);
-            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
+            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(packCut() ? 1 : 0).putInt(0);
         }
         RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
     }
@@ -455,6 +464,9 @@ public final class LodRenderer {
             vitrailCornerZ = java.util.Arrays.copyOf(vitrailCornerZ, size);
         }
         maxQuadsPerDraw = 0;
+        // With a pack, sections split by distance: near ones stay Uno's (textured), far ones go to the pack.
+        splitForPack = VITRAIL && net.mistraly.uno.compat.VitrailBridge.packActive();
+        double packFrom = UnoConfig.SHADER_TEXTURE_DISTANCE.get() * currentZoom;
         // commands: opaque runs from 0 (up to 3 per section), fluid from WATER_COMMANDS, models from MODEL_COMMANDS
         try (GpuBufferSlice.MappedView instances = buffers.instances.currentBuffer().slice(0, (long) drawCount * INSTANCE_BYTES).map(false, true);
              GpuBufferSlice.MappedView commands = buffers.commands.currentBuffer().slice(0, (long) COMMAND_CAPACITY * COMMAND_BYTES).map(false, true)) {
@@ -467,6 +479,14 @@ public final class LodRenderer {
                 instanceData.putInt(LodKey.originX(key)).putInt(LodKey.originY(key)).putInt(LodKey.originZ(key)).putInt(LodKey.level(key));
                 if (VITRAIL) {
                     recordForVitrail(i, node, key);
+                }
+                if (splitForPack) {
+                    int span = LodKey.span(LodKey.level(key));
+                    if (horizontalDistance(camera.pos, LodKey.originX(key), LodKey.originZ(key), span, false) >= packFrom) {
+                        continue;
+                    }
+                    vitrailOpaque[i] = 0;
+                    vitrailWater[i] = 0;
                 }
                 if (node.quadStart >= 0) {
                     int visible = visibleDirections(camera.pos, key);
@@ -518,11 +538,13 @@ public final class LodRenderer {
 
     public static void onAfterOpaque(RenderLevelStageEvent.AfterOpaqueBlocks event) {
         if (handedToVitrail) {
-            // Vitrail's pack draws the far terrain (lit and shadowed by the pack); Uno's own pass is skipped.
+            // the pack draws the far sections (lit and shadowed by it); Uno draws only the near, textured ones
             if (waterInOpaquePass) {
                 net.mistraly.uno.compat.VitrailBridge.drawWater();
             }
-            return;
+            if (!splitForPack) {
+                return;
+            }
         }
         draw(event.getRenderPass(), PIPELINE, 0, opaqueCommands);
         drawModels(event.getRenderPass());
@@ -536,7 +558,9 @@ public final class LodRenderer {
             if (!waterInOpaquePass) {
                 net.mistraly.uno.compat.VitrailBridge.drawWater();
             }
-            return;
+            if (!splitForPack) {
+                return;
+            }
         }
         if (!waterInOpaquePass) {
             draw(event.getRenderPass(), WATER_PIPELINE, WATER_COMMANDS, waterCount);
@@ -1090,7 +1114,7 @@ public final class LodRenderer {
     /// Before the first section mask exists, falls back to the render-distance cylinder.
     private static boolean coveredByVanilla(long key, Vec3 camera, int hole) {
         int level = LodKey.level(key);
-        if (level > 1) {
+        if (level > 1 || packCut()) {
             return false;
         }
         int span = LodKey.span(level);

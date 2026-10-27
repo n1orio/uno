@@ -49,6 +49,11 @@ public final class VitrailBridge {
         return !DISTANT_HORIZONS && enabled();
     }
 
+    /// Whether a pack is loaded and drawing right now, so the far terrain goes to it.
+    public static boolean packActive() {
+        return answers() && dev.vitrail.render.PackChain.drawingPack();
+    }
+
     // ---------------------------------------------------------------- answers for the DhDepth mixin
 
     public static boolean present() {

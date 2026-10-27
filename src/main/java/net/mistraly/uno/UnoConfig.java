@@ -21,6 +21,10 @@ public final class UnoConfig {
         .comment("Block textures are drawn on LODs up to this distance (blocks, scaled by zoom); further away LODs use the texture's average colour")
         .defineInRange("textureDistance", 1024, 0, 16384);
 
+    public static final ModConfigSpec.IntValue SHADER_TEXTURE_DISTANCE = BUILDER
+        .comment("With a Vitrail shader pack: LODs closer than this (blocks, scaled by zoom) are drawn by Uno with block textures; further ones go to the pack, which draws them untextured with its own light")
+        .defineInRange("shaderTextureDistance", 256, 0, 16384);
+
     public static final ModConfigSpec.BooleanValue OCCLUSION_CULLING = BUILDER
         .comment("Skip LOD sections hidden behind hills and mountains (CPU horizon test)")
         .define("occlusionCulling", true);
