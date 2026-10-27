@@ -312,6 +312,12 @@ public final class Mesher {
                     // (the voxel's own light is 0 inside opaque blocks and made such faces black)
                     int sky = known ? Voxel.sky(neighbor) : 15;
                     int block = known ? Voxel.block(neighbor) : Voxel.block(self);
+                    if (BlockKind.fluid(selfKind)) {
+                        // water is lit by its own light too: on coarse levels the voxel above the surface can be
+                        // a mip with no light in it, and whole squares of lake turned black until zoomed in
+                        sky = Math.max(sky, Voxel.sky(self));
+                        block = Math.max(block, Voxel.block(self));
+                    }
                     int ao = AO_OPEN;
                     if (!visible && outside && d >= 2 && selfKind == BlockKind.OPAQUE) {
                         int skirtSky = this.surfaceSky(data, d, s, u, v);
