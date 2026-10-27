@@ -435,7 +435,7 @@ public final class LodRenderer {
                 .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
                 .putInt(maskValid ? sectionMask.originZ * 16 : 0)
                 .putInt(maskValid ? sectionMask.size : 0);
-            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(splitForPack ? 1 : 0).putInt(0);
+            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
         }
         RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
     }
@@ -483,7 +483,8 @@ public final class LodRenderer {
                 if (splitForPack) {
                     // the pack draws every section, water included; Uno adds textures over the near ones
                     int span = LodKey.span(LodKey.level(key));
-                    if (horizontalDistance(camera.pos, LodKey.originX(key), LodKey.originZ(key), span, false) >= packFrom) {
+                    if (horizontalDistance(camera.pos, LodKey.originX(key), LodKey.originZ(key), span, false) >= packFrom
+                        || underVanilla(key, camera.pos, holeRadius())) {
                         continue;
                     }
                 }
@@ -1112,8 +1113,12 @@ public final class LodRenderer {
     /// Whether vanilla / Sodium draw every 16^3 section inside this LOD section (checked for levels 0 and 1).
     /// Before the first section mask exists, falls back to the render-distance cylinder.
     private static boolean coveredByVanilla(long key, Vec3 camera, int hole) {
+        return !packCut() && underVanilla(key, camera, hole);
+    }
+
+    private static boolean underVanilla(long key, Vec3 camera, int hole) {
         int level = LodKey.level(key);
-        if (level > 1 || packCut()) {
+        if (level > 1) {
             return false;
         }
         int span = LodKey.span(level);
