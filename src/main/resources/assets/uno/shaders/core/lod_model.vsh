@@ -32,8 +32,10 @@ layout(location = 2) out vec4 vertexColor;
 layout(location = 3) out vec3 cameraOffset;
 layout(location = 4) out vec2 texCoord0;
 layout(location = 5) out vec3 maskPos;
+layout(location = 6) flat out int sectionFade;
 
 void main() {
+    sectionFade = SectionInfo.w;
     vec3 pos = Position + vec3(SectionInfo.xyz - CameraBlockPos) + CameraOffset;
     // same depth bias as the cube LODs, so vanilla wins where both draw the same block
     gl_Position = ProjMat * ModelViewMat * vec4(pos * 1.002, 1.0);

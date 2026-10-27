@@ -58,7 +58,7 @@ public final class LodRenderer {
     private static final int MODEL_COMMANDS = 4 * MAX_DRAWS;
     private static final int COMMAND_CAPACITY = 5 * MAX_DRAWS;
     private static final int FRAME_UBO_BYTES = 112;
-    private static final long UPLOAD_BUDGET = 32L * 1024 * 1024;
+    private static final long UPLOAD_BUDGET = 64L * 1024 * 1024;
     private static final int REQUEST_BUDGET = 1024;
     private static final int MAX_PENDING = 8192;
 
@@ -136,6 +136,8 @@ public final class LodRenderer {
         int distantOpaqueQuads;
         /// Whether the last mesh carried the far-terrain half (only built while a pack draws).
         boolean hasDistant;
+        /// When this section started being drawn in place of its parent or children (ms), 0 for no fade.
+        long shownAt;
         int distantWaterQuads;
         int modelStart = -1;
         int modelCount;
@@ -182,6 +184,81 @@ public final class LodRenderer {
     private static final Long2ObjectOpenHashMap<Node> NODES = new Long2ObjectOpenHashMap<>();
     private static final ArrayDeque<LodWorld.MeshResult> BACKLOG = new ArrayDeque<>();
     private static final LongArrayList DRAWS = new LongArrayList();
+
+    // ---------------------------------------------------------------- cross-fade between levels
+
+    private static final long FADE_MS = 200;
+    /// Last selection's drawn sections.
+    private static it.unimi.dsi.fastutil.longs.LongOpenHashSet shown = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+    /// Sections replaced by a finer or coarser level, still drawn while they fade out: key -> when (ms).
+    private static final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap FADING_OUT = new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap();
+    private static boolean fading;
+
+    private static boolean related(long key, it.unimi.dsi.fastutil.longs.LongSet set) {
+        if (LodKey.level(key) < LodKey.MAX_LEVEL && set.contains(LodKey.parent(key))) {
+            return true;
+        }
+        if (LodKey.level(key) > 0) {
+            for (int i = 0; i < 8; i++) {
+                if (set.contains(LodKey.child(key, i))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// A level change no longer pops: the new sections dither in while the ones they replace dither out, through
+    /// complementary pixels. Sections that merely come into view (turning, culling) just appear.
+    private static void crossFade() {
+        long now = System.nanoTime() / 1_000_000L;
+        it.unimi.dsi.fastutil.longs.LongOpenHashSet current = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(DRAWS);
+        for (int i = 0; i < DRAWS.size(); i++) {
+            long key = DRAWS.getLong(i);
+            if (!shown.contains(key)) {
+                Node node = NODES.get(key);
+                if (node != null) {
+                    node.shownAt = related(key, shown) ? now : 0;
+                }
+                FADING_OUT.remove(key);
+            }
+        }
+        for (long key : shown) {
+            if (!current.contains(key) && related(key, current)) {
+                FADING_OUT.putIfAbsent(key, now);
+            }
+        }
+        shown = current;
+        fading = false;
+        var iterator = FADING_OUT.long2LongEntrySet().iterator();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            Node node = NODES.get(entry.getLongKey());
+            if (now - entry.getLongValue() >= FADE_MS || node == null || !node.hasGeometry()) {
+                iterator.remove();
+            } else {
+                DRAWS.add(entry.getLongKey());
+                fading = true;
+            }
+        }
+        for (int i = 0; i < DRAWS.size() && !fading; i++) {
+            Node node = NODES.get(DRAWS.getLong(i));
+            fading = node != null && node.shownAt != 0 && now - node.shownAt < FADE_MS;
+        }
+    }
+
+    /// Instance bits above the level: mode (1 fading in, 2 fading out) at bit 4, progress 0-255 at bit 8.
+    private static int fadeBits(long key, Node node) {
+        long now = System.nanoTime() / 1_000_000L;
+        long out = FADING_OUT.getOrDefault(key, -1L);
+        if (out >= 0) {
+            return (2 << 4) | ((int) Math.min(255, (now - out) * 255 / FADE_MS) << 8);
+        }
+        if (node.shownAt != 0 && now - node.shownAt < FADE_MS) {
+            return (1 << 4) | ((int) ((now - node.shownAt) * 255 / FADE_MS) << 8);
+        }
+        return 0;
+    }
     private static long frameIndex;
     private static int pendingCount;
     private static int drawCount;
@@ -405,7 +482,7 @@ public final class LodRenderer {
             || Math.abs(camera.xRot - lastSelectXRot) > 0.5F
             || Math.abs(camera.yRot - lastSelectYRot) > 0.5F
             || currentZoom != lastSelectZoom;
-        if (moved || changes > 0 || uploads > 0 || maskChanged || frameIndex - lastSelectFrame >= 20) {
+        if (moved || changes > 0 || uploads > 0 || maskChanged || fading || frameIndex - lastSelectFrame >= 20) {
             lastSelectPosition = camera.pos;
             lastSelectXRot = camera.xRot;
             lastSelectYRot = camera.yRot;
@@ -480,7 +557,8 @@ public final class LodRenderer {
                 long key = DRAWS.getLong(i);
                 Node node = NODES.get(key);
                 int opaque = node.quadCount - node.fluidCount;
-                instanceData.putInt(LodKey.originX(key)).putInt(LodKey.originY(key)).putInt(LodKey.originZ(key)).putInt(LodKey.level(key));
+                instanceData.putInt(LodKey.originX(key)).putInt(LodKey.originY(key)).putInt(LodKey.originZ(key))
+                    .putInt(LodKey.level(key) | fadeBits(key, node));
                 if (VITRAIL) {
                     recordForVitrail(i, node, key);
                 }
@@ -898,14 +976,17 @@ public final class LodRenderer {
         for (int x = x0; x <= x1; x++) {
             for (int z = z0; z <= z1; z++) {
                 for (int y = y0; y <= y1; y++) {
-                    visit(lodWorld, LodKey.pack(LodKey.MAX_LEVEL, x, y, z), camera, frustum, distance, hole, detail);
+                    visit(lodWorld, LodKey.pack(LodKey.MAX_LEVEL, x, y, z), camera, frustum, distance, hole, detail, true);
                 }
             }
         }
         cullHidden(camera);
+        crossFade();
     }
 
-    private static void visit(LodWorld lodWorld, long key, Vec3 camera, Frustum frustum, int distance, int hole, double detail) {
+    /// Sections behind the camera are walked too (`inView` false), at their coarsest level: meshed and kept, just not
+    /// drawn, so a quick turn never finds empty space.
+    private static void visit(LodWorld lodWorld, long key, Vec3 camera, Frustum frustum, int distance, int hole, double detail, boolean inView) {
         int level = LodKey.level(key);
         int span = LodKey.span(level);
         int ox = LodKey.originX(key);
@@ -922,14 +1003,16 @@ public final class LodRenderer {
             keepWarm(lodWorld, key, near);
             return;
         }
-        if (!frustum.isVisible(new AABB(ox, oy, oz, ox + span, oy + span, oz + span))) {
-            return;
+        if (inView && !frustum.isVisible(new AABB(ox, oy, oz, ox + span, oy + span, oz + span))) {
+            inView = false;
         }
         Node node = NODES.get(key);
         if (node != null) {
             node.lastSeen = frameIndex;
         }
-        if (level > 0 && near < detail * (1 << (level - 1))) {
+        // out of view only the coarse level is kept ready: a quick turn finds terrain there at once, and the finer
+        // levels fade in over it, without meshing and keeping everything behind the camera at full detail
+        if (level > 0 && inView && near < detail * (1 << (level - 1))) {
             boolean ready = true;
             for (int i = 0; i < 8; i++) {
                 if (!isReady(lodWorld, LodKey.child(key, i), camera, distance, hole, near)) {
@@ -938,13 +1021,16 @@ public final class LodRenderer {
             }
             if (ready) {
                 for (int i = 0; i < 8; i++) {
-                    visit(lodWorld, LodKey.child(key, i), camera, frustum, distance, hole, detail);
+                    visit(lodWorld, LodKey.child(key, i), camera, frustum, distance, hole, detail, inView);
                 }
                 return;
             }
         }
-        draw(lodWorld, key, node, near);
+        draw(lodWorld, key, node, inView ? near : near + OUT_OF_VIEW_PRIORITY, inView);
     }
+
+    /// Out-of-view sections are meshed after everything in view.
+    private static final double OUT_OF_VIEW_PRIORITY = 1.0E6;
 
     /// A child is ready when it is known (meshed or empty) or would not be drawn anyway. Unknown children get requested.
     private static boolean isReady(LodWorld lodWorld, long key, Vec3 camera, int distance, int hole, double priority) {
@@ -990,13 +1076,15 @@ public final class LodRenderer {
         }
     }
 
-    private static void draw(LodWorld lodWorld, long key, @Nullable Node node, double priority) {
+    private static void draw(LodWorld lodWorld, long key, @Nullable Node node, double priority, boolean inView) {
         // far-terrain meshes are only built while a pack draws; sections meshed before it started are redone
-        if (node == null || !node.known || node.stale || (lodWorld.buildDistant && !node.hasDistant)) {
+        // the world thread reads sections in request order, so out-of-view ones wait until the queue is nearly empty
+        boolean wanted = node == null || !node.known || node.stale || (lodWorld.buildDistant && !node.hasDistant);
+        if (wanted && (inView || pendingCount < 64)) {
             request(lodWorld, key, node, priority);
             node = NODES.get(key);
         }
-        if (node != null && node.known && (node.hasGeometry() || node.occluderY != Integer.MIN_VALUE)) {
+        if (inView && node != null && node.known && (node.hasGeometry() || node.occluderY != Integer.MIN_VALUE)) {
             CANDIDATES.add(key);
         }
     }

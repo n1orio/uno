@@ -55,6 +55,6 @@ public final class UnoConfig {
         if (configured > 0) {
             return configured;
         }
-        return Math.clamp(Runtime.getRuntime().availableProcessors() - 2, 1, 8);
+        return Math.clamp(Runtime.getRuntime().availableProcessors() - 2, 1, 12);
     }
 }

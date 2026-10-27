@@ -13,3 +13,7 @@ Design document: https://claude.ai/artifact/MuWxjQaKbMZqo5PKDJreCR
 - `mixin/CameraMixin` — pushes the far plane out to the LOD distance
 
 Dev: `./gradlew runClientTest` joins `run/saves/UnoTest` with Sodium; add `-PwithVitrail` to run with Vitrail.
+
+## License
+
+[Uno License](LICENSE): free to use, modify, fork and redistribute; not for sale; the "Uno <version> by Niorio" line on the title screen must stay.

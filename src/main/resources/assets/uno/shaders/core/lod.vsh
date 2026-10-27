@@ -32,6 +32,7 @@ layout(location = 4) out vec2 texCoord;
 layout(location = 5) flat out int materialIndex;
 layout(location = 6) flat out vec3 tint;
 layout(location = 7) out vec3 maskPos;
+layout(location = 8) flat out int sectionFade;
 
 // Unit-cube corners per face, same order and winding as the vanilla cloud mesh:
 // down, up, north (-z), south (+z), west (-x), east (+x); 4 corners each, bit i of the mask = corner i.
@@ -43,6 +44,7 @@ const float faceShade[6] = float[](0.5, 1.0, 0.8, 0.8, 0.6, 0.6);
 const vec3 faceNormal[6] = vec3[](vec3(0, -1, 0), vec3(0, 1, 0), vec3(0, 0, -1), vec3(0, 0, 1), vec3(-1, 0, 0), vec3(1, 0, 0));
 
 void main() {
+    sectionFade = SectionInfo.w;
     int quadIndex = gl_VertexIndex >> 2;
     int corner = gl_VertexIndex & 3;
     uvec4 quad = texelFetch(UnoQuads, quadIndex);
@@ -68,7 +70,7 @@ void main() {
         size = vec3(1, h, w);
     }
 
-    float scale = float(1 << SectionInfo.w);
+    float scale = float(1 << (SectionInfo.w & 15));
     vec3 local = (vec3(x, y, z) + unit * size) * scale;
     vec3 pos = local + vec3(SectionInfo.xyz - CameraBlockPos) + CameraOffset;
     // Push LODs 0.2% farther along the view ray: same pixel, but where they coincide with vanilla terrain

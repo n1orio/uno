@@ -47,6 +47,20 @@ layout(location = 4) in vec2 texCoord;
 layout(location = 5) flat in int materialIndex;
 layout(location = 6) flat in vec3 tint;
 layout(location = 7) in vec3 maskPos;
+layout(location = 8) flat in int sectionFade;
+
+// Level changes cross-fade through a screen-space dither: a section fading in (mode 1) keeps the pixels below t,
+// the one it replaces (mode 2) keeps the rest, so the two never overlap and never leave a hole.
+bool fadeHidden(int fade) {
+    int mode = (fade >> 4) & 3;
+    if (mode == 0) {
+        return false;
+    }
+    float t = float(fade >> 8) / 255.0;
+    float d = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    return mode == 1 ? d >= t : d < t;
+}
+
 
 layout(location = 0) out vec4 fragColor;
 
@@ -57,6 +71,9 @@ vec4 sampleLayer(vec4 rect, vec2 tile, vec2 dx, vec2 dy) {
 }
 
 void main() {
+    if (fadeHidden(sectionFade)) {
+        discard;
+    }
     if (coveredByVanilla(maskPos, cameraOffset)) {
         discard;
     }

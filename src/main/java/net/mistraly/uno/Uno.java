@@ -59,6 +59,7 @@ public final class Uno {
         modBus.addListener(LodRenderer::registerPipelines);
         modBus.addListener(Uno::addReloadListener);
 
+        NeoForge.EVENT_BUS.addListener(TitleCredit::onRender);
         NeoForge.EVENT_BUS.addListener(Uno::onLevelLoad);
         NeoForge.EVENT_BUS.addListener(Uno::onLevelUnload);
         NeoForge.EVENT_BUS.addListener(Uno::onChunkLoad);
