@@ -182,16 +182,23 @@ public final class Mesher {
         it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap colours = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
         int scale = 1 << level;
         for (IntArrayList list : this.quads) {
-            this.distantOpaque += this.writeDistant(out, list, scale, colours);
+            this.distantOpaque += this.writeDistant(out, list, scale, colours, false);
         }
-        this.distantWater = this.writeDistant(out, this.fluidQuads, scale, colours);
+        this.distantWater = this.writeDistant(out, this.fluidQuads, scale, colours, true);
         out.flip();
         this.distant = out;
     }
 
-    private int writeDistant(ByteBuffer out, IntArrayList list, int scale, it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap colours) {
+    /// `surfaceOnly`: water hands the pack only its surface. Its sides are faces against water of the next section
+    /// or of another level, which the pack's translucent water shows as a grid of panes.
+    private int writeDistant(ByteBuffer out, IntArrayList list, int scale, it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap colours, boolean surfaceOnly) {
         int count = list.size() / 4;
+        int written = 0;
         for (int q = 0; q < count; q++) {
+            if (surfaceOnly && ((list.getInt(q * 4) >> 25) & 7) != 1) {
+                continue;
+            }
+            written++;
             int word0 = list.getInt(q * 4);
             int word1 = list.getInt(q * 4 + 1);
             int word2 = list.getInt(q * 4 + 2);
@@ -229,7 +236,7 @@ public final class Mesher {
                 out.putShort((short) 0);
             }
         }
-        return count;
+        return written;
     }
 
     /// The far colour the LOD shader uses: both layers' average colours with their tints, mixed by coverage.

@@ -208,8 +208,14 @@ public final class Ingester {
         }
         int topOpaque = this.countSolid(group, 0, 4);
         int topFluid = this.countFluid(group, 0, 4);
-        if (topFluid > topOpaque) {
+        // ice (and glass) on top counts against the water under it, or a frozen lake turns back into open water
+        // in the distance, deep and dark
+        int topPartial = this.count(group, 0, 4, BlockKind.PARTIAL);
+        if (topFluid > topOpaque + topPartial) {
             return Voxel.withLight(this.firstFluid(group, 0, 4), sky, block);
+        }
+        if (topOpaque == 0 && topPartial > 0 && topFluid > 0) {
+            return Voxel.withLight(this.mostCommon(group, 0, 4, BlockKind.PARTIAL), sky, block);
         }
         int best = topOpaque > 0 ? this.mostCommonSolid(group, 0, 4) : -1;
         if (best == -1 && topFluid == 0) {
