@@ -435,7 +435,7 @@ public final class LodRenderer {
                 .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
                 .putInt(maskValid ? sectionMask.originZ * 16 : 0)
                 .putInt(maskValid ? sectionMask.size : 0);
-            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
+            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(splitForPack ? 1 : 0).putInt(0);
         }
         RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
     }
@@ -466,7 +466,7 @@ public final class LodRenderer {
         maxQuadsPerDraw = 0;
         // With a pack, sections split by distance: near ones stay Uno's (textured), far ones go to the pack.
         splitForPack = VITRAIL && net.mistraly.uno.compat.VitrailBridge.packActive();
-        double packFrom = UnoConfig.SHADER_TEXTURE_DISTANCE.get() * currentZoom;
+        double packFrom = holeRadius() + UnoConfig.SHADER_TEXTURE_DISTANCE.get() * currentZoom;
         // commands: opaque runs from 0 (up to 3 per section), fluid from WATER_COMMANDS, models from MODEL_COMMANDS
         try (GpuBufferSlice.MappedView instances = buffers.instances.currentBuffer().slice(0, (long) drawCount * INSTANCE_BYTES).map(false, true);
              GpuBufferSlice.MappedView commands = buffers.commands.currentBuffer().slice(0, (long) COMMAND_CAPACITY * COMMAND_BYTES).map(false, true)) {

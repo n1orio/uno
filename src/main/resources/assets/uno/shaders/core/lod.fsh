@@ -20,9 +20,10 @@ uniform usamplerBuffer UnoMask;
 // LODs are cut away where vanilla terrain is drawn: exactly per section once the mask exists, a render-distance
 // cylinder before that. `maskPos` is the position relative to the mask origin, `offset` relative to the camera.
 bool coveredByVanilla(vec3 maskPos, vec3 offset) {
-    if (MaskInfo.z != 0) {
-        // a shader pack is drawing: it dissolves the vanilla edge into the far terrain behind it, so nothing is cut
-        return false;
+    if (MaskInfo.z != 0 && length(offset.xz) < HoleParams.x && length(offset.xz) > HoleParams.x * 0.6) {
+        // a shader pack is drawing: in the outer ring of the render distance the pack dissolves the vanilla edge
+        // into its own far terrain (fully there past 0.6 of it), so Uno leaves that ring to the pack
+        return true;
     }
     if (MaskInfo.y == 0) {
         return length(offset.xz) < HoleParams.x && abs(offset.y) < HoleParams.x;
