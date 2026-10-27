@@ -93,7 +93,6 @@ public final class Uno {
         LOGGER.info("Uno: opening LOD storage {}", dir);
         PENDING_LOADS.clear();
         LodWorld world = new LodWorld(dir, level.registryAccess().lookupOrThrow(Registries.BIOME), UnoConfig.SECTION_CACHE.get(), UnoConfig.meshThreads());
-        world.buildDistant = LodRenderer.VITRAIL;
         LodRenderer.attach(world, level.getMinY(), level.getMaxY() + 1);
     }
 

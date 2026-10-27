@@ -152,7 +152,7 @@ dependencies {
     sodiumBundle "maven.modrinth:sodium:SS023RVV"
     // Vitrail (shader packs on Vulkan), unmodified: Uno's bridge and mixins stand in for Distant Horizons there;
     // only touched when Vitrail is installed
-    def vitrailJar = files('../vitrail-stock/neoforge/build/mc26.3/libs/vitrail-neoforge-0.13.0-beta+mc26.3.jar')
+    def vitrailJar = 'maven.modrinth:vitrail-shaders:Q3nKuPKJ' // 0.13.0-beta+mc26.3
     compileOnly vitrailJar
     if (project.hasProperty('withVitrail')) {
         localRuntime vitrailJar

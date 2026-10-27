@@ -134,6 +134,8 @@ public final class LodRenderer {
         @Nullable GpuBuffer distantOpaque;
         @Nullable GpuBuffer distantWater;
         int distantOpaqueQuads;
+        /// Whether the last mesh carried the far-terrain half (only built while a pack draws).
+        boolean hasDistant;
         int distantWaterQuads;
         int modelStart = -1;
         int modelCount;
@@ -378,6 +380,8 @@ public final class LodRenderer {
             return;
         }
         frameIndex++;
+        // the far-terrain half costs meshing time and two buffers per section, so it is only built while a pack draws
+        lodWorld.buildDistant = VITRAIL && net.mistraly.uno.compat.VitrailBridge.packActive();
         if (VITRAIL) {
             net.mistraly.uno.compat.VitrailBridge.update(UnoConfig.LOD_DISTANCE.get(), UnoConfig.LOD_DISTANCE.get() + 512.0F);
         }
@@ -487,6 +491,9 @@ public final class LodRenderer {
                         || underVanilla(key, camera.pos, holeRadius())) {
                         continue;
                     }
+                    // Uno draws this one's terrain itself, so the pack does not draw it a second time (water stays
+                    // the pack's everywhere)
+                    vitrailOpaque[i] = 0;
                 }
                 if (node.quadStart >= 0) {
                     int visible = visibleDirections(camera.pos, key);
@@ -777,6 +784,7 @@ public final class LodRenderer {
             node.known = true;
             node.version = result.version();
             node.occluderY = occluderY(result.key(), result.occluderTop());
+            node.hasDistant = result.distant() != null || result.quadCount() == 0;
             int quads = result.quadCount();
             if (quads > 0) {
                 int start = allocate(quadArena, quads);
@@ -983,7 +991,8 @@ public final class LodRenderer {
     }
 
     private static void draw(LodWorld lodWorld, long key, @Nullable Node node, double priority) {
-        if (node == null || !node.known || node.stale) {
+        // far-terrain meshes are only built while a pack draws; sections meshed before it started are redone
+        if (node == null || !node.known || node.stale || (lodWorld.buildDistant && !node.hasDistant)) {
             request(lodWorld, key, node, priority);
             node = NODES.get(key);
         }
