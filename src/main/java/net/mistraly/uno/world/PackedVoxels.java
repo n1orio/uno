@@ -24,6 +24,13 @@ final class PackedVoxels {
         this.setBits(bits);
     }
 
+    /// An independent copy (two array clones), so another thread can unpack it while this one keeps changing.
+    PackedVoxels copy() {
+        PackedVoxels copy = new PackedVoxels(this.bits, this.palette.clone(), this.paletteSize);
+        copy.words = this.words.clone();
+        return copy;
+    }
+
     static PackedVoxels filled(int value) {
         return new PackedVoxels(0, new int[] {value, 0}, 1);
     }

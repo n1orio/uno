@@ -47,7 +47,8 @@ public final class LodWorld implements AutoCloseable {
         }
     }
 
-    private record MeshJob(long key, int version, int[] data, int[][] neighbors, double priority, long order)
+    /// Copies of the packed voxels; they are unpacked on the mesher thread, not on the single world thread.
+    private record MeshJob(long key, int version, PackedVoxels data, PackedVoxels[] neighbors, double priority, long order)
         implements Comparable<MeshJob> {
         @Override
         public int compareTo(MeshJob other) {
@@ -110,12 +111,12 @@ public final class LodWorld implements AutoCloseable {
                 this.meshResults.add(new MeshResult(key, section == null ? 0 : section.version, null, MeshResult.NO_DIRECTIONS, 0, null, 0, -1, null, 0, 0));
                 return;
             }
-            int[][] neighbors = new int[6][];
+            PackedVoxels[] neighbors = new PackedVoxels[6];
             for (int d = 0; d < 6; d++) {
                 LodSection neighbor = this.store.get(neighborKey(key, d));
-                neighbors[d] = neighbor == null ? null : neighbor.plane(d);
+                neighbors[d] = neighbor == null ? null : neighbor.snapshot();
             }
-            MeshJob job = new MeshJob(key, section.version, section.toArray(), neighbors, priority, this.order.getAndIncrement());
+            MeshJob job = new MeshJob(key, section.version, section.snapshot(), neighbors, priority, this.order.getAndIncrement());
             this.meshers.execute(new PrioritizedTask(job, () -> this.runMesh(job)));
         });
     }
@@ -137,7 +138,11 @@ public final class LodWorld implements AutoCloseable {
         }
         try {
             Mesher mesher = this.mesherPerThread.get();
-            ByteBuffer quads = mesher.mesh(job.data, job.neighbors, LodKey.level(job.key), this.buildDistant);
+            int[][] planes = new int[6][];
+            for (int d = 0; d < 6; d++) {
+                planes[d] = job.neighbors[d] == null ? null : LodSection.plane(job.neighbors[d], d);
+            }
+            ByteBuffer quads = mesher.mesh(job.data.toArray(), planes, LodKey.level(job.key), this.buildDistant);
             MeshResult result = new MeshResult(
                 job.key, job.version, quads, mesher.directionCounts(), quads == null ? 0 : mesher.fluidCount(), mesher.takeModels(), mesher.modelCount(),
                 mesher.occluderTop(), mesher.takeDistant(), mesher.distantOpaque(), mesher.distantWater()

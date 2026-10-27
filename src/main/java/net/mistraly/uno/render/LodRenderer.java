@@ -187,7 +187,7 @@ public final class LodRenderer {
 
     // ---------------------------------------------------------------- cross-fade between levels
 
-    private static final long FADE_MS = 200;
+    private static final long FADE_MS = 100;
     /// Last selection's drawn sections.
     private static it.unimi.dsi.fastutil.longs.LongOpenHashSet shown = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
     /// Sections replaced by a finer or coarser level, still drawn while they fade out: key -> when (ms).
