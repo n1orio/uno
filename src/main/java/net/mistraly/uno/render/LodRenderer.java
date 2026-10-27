@@ -32,6 +32,7 @@ import net.minecraft.client.renderer.fog.environment.AtmosphericFogEnvironment;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.mistraly.uno.Uno;
@@ -129,6 +130,7 @@ public final class LodRenderer {
         int quadCount;
         int[] directionCounts = new int[6];
         int fluidCount;
+        int distantStart = -1;
         int modelStart = -1;
         int modelCount;
         /// World y below which the section's footprint is opaque terrain, or MIN_VALUE: an occluder for culling.
@@ -143,6 +145,10 @@ public final class LodRenderer {
             if (this.quadStart >= 0 && arena != null) {
                 arena.release(this.quadStart, this.quadCount);
             }
+            if (this.distantStart >= 0 && distantArena != null) {
+                distantArena.release(this.distantStart, this.quadCount);
+            }
+            this.distantStart = -1;
             if (this.modelStart >= 0 && modelArena != null) {
                 modelArena.release(this.modelStart, this.modelCount);
             }
@@ -158,6 +164,8 @@ public final class LodRenderer {
     private static @Nullable LodWorld world;
     private static @Nullable QuadArena arena;
     private static @Nullable QuadArena modelArena;
+    /// Far-terrain vertices in Distant Horizons' layout (16 bytes a vertex, 4 per quad), read by a shader pack.
+    private static @Nullable QuadArena distantArena;
     private static @Nullable FrameBuffers frame;
     private static @Nullable MaterialTable materials;
     private static @Nullable SectionMask mask;
@@ -171,6 +179,20 @@ public final class LodRenderer {
     private static int waterCount;
     private static int modelDraws;
     private static boolean waterInOpaquePass;
+    /// Vitrail (shader packs on Vulkan) is installed, so its far terrain door is available. Checked once.
+    private static final boolean VITRAIL = net.neoforged.fml.ModList.get().isLoaded("vitrail");
+    /// Per-section data for Vitrail, rebuilt with the draw list: corner, and quad counts per half.
+    private static int[] vitrailStarts = new int[0];
+    private static int[] vitrailOpaque = new int[0];
+    private static int[] vitrailWater = new int[0];
+    private static int[] vitrailCornerX = new int[0];
+    private static int[] vitrailCornerY = new int[0];
+    private static int[] vitrailCornerZ = new int[0];
+    /// 32-bit quad indices (0,1,2, 2,3,0 per quad) for Vitrail, which binds INT indices; the game's own sequential
+    /// buffer switches to 16-bit when small and was read as garbage triangles.
+    private static @Nullable GpuBuffer vitrailIndices;
+    private static int vitrailIndexQuads;
+    private static int vitrailMaxQuads;
     private static double currentZoom = 1.0;
     private static int maxQuadsPerDraw;
     private static boolean unsupportedLogged;
@@ -217,6 +239,9 @@ public final class LodRenderer {
         maxY = worldMaxY;
         arena = new QuadArena("Uno quads", UnoConfig.GPU_MEMORY_MB.get(), Mesher.QUAD_BYTES, GpuBuffer.USAGE_UNIFORM_TEXEL_BUFFER);
         modelArena = new QuadArena("Uno model vertices", UnoConfig.MODEL_MEMORY_MB.get(), Mesher.MODEL_QUAD_BYTES, GpuBuffer.USAGE_VERTEX);
+        if (VITRAIL) {
+            distantArena = new QuadArena("Uno far terrain", UnoConfig.GPU_MEMORY_MB.get(), Mesher.DISTANT_QUAD_BYTES, GpuBuffer.USAGE_VERTEX);
+        }
         frame = new FrameBuffers();
         materials = new MaterialTable();
         mask = new SectionMask(worldMinY, worldMaxY);
@@ -242,6 +267,15 @@ public final class LodRenderer {
         if (modelArena != null) {
             modelArena.close();
             modelArena = null;
+        }
+        if (distantArena != null) {
+            distantArena.close();
+            distantArena = null;
+        }
+        if (vitrailIndices != null) {
+            vitrailIndices.close();
+            vitrailIndices = null;
+            vitrailIndexQuads = 0;
         }
         if (frame != null) {
             frame.close();
@@ -393,6 +427,16 @@ public final class LodRenderer {
         buffers.instances.rotate();
         buffers.commands.rotate();
         drawCount = Math.min(DRAWS.size(), MAX_DRAWS);
+        vitrailMaxQuads = 0;
+        if (VITRAIL && vitrailStarts.length < drawCount) {
+            int size = Math.max(drawCount, vitrailStarts.length * 2);
+            vitrailStarts = java.util.Arrays.copyOf(vitrailStarts, size);
+            vitrailOpaque = java.util.Arrays.copyOf(vitrailOpaque, size);
+            vitrailWater = java.util.Arrays.copyOf(vitrailWater, size);
+            vitrailCornerX = java.util.Arrays.copyOf(vitrailCornerX, size);
+            vitrailCornerY = java.util.Arrays.copyOf(vitrailCornerY, size);
+            vitrailCornerZ = java.util.Arrays.copyOf(vitrailCornerZ, size);
+        }
         maxQuadsPerDraw = 0;
         // commands: opaque runs from 0 (up to 3 per section), fluid from WATER_COMMANDS, models from MODEL_COMMANDS
         try (GpuBufferSlice.MappedView instances = buffers.instances.currentBuffer().slice(0, (long) drawCount * INSTANCE_BYTES).map(false, true);
@@ -404,6 +448,9 @@ public final class LodRenderer {
                 Node node = NODES.get(key);
                 int opaque = node.quadCount - node.fluidCount;
                 instanceData.putInt(LodKey.originX(key)).putInt(LodKey.originY(key)).putInt(LodKey.originZ(key)).putInt(LodKey.level(key));
+                if (VITRAIL) {
+                    recordForVitrail(i, node, key);
+                }
                 if (node.quadStart >= 0) {
                     int visible = visibleDirections(camera.pos, key);
                     int offset = 0;
@@ -446,6 +493,10 @@ public final class LodRenderer {
     }
 
     public static void onAfterOpaque(RenderLevelStageEvent.AfterOpaqueBlocks event) {
+        if (VITRAIL && handOverToVitrail()) {
+            // Vitrail's pack draws the far terrain (lit and shadowed by the pack); Uno's own pass is skipped.
+            return;
+        }
         draw(event.getRenderPass(), PIPELINE, 0, opaqueCommands);
         drawModels(event.getRenderPass());
         if (waterInOpaquePass) {
@@ -457,6 +508,25 @@ public final class LodRenderer {
         if (!waterInOpaquePass) {
             draw(event.getRenderPass(), WATER_PIPELINE, WATER_COMMANDS, waterCount);
         }
+    }
+
+    /// Hands this frame's sections to Vitrail's far terrain door. Returns true when the pack drew the opaque half.
+    /// Uses the quad/section buffers Uno already has, so nothing is copied for it.
+    private static boolean handOverToVitrail() {
+        QuadArena quadArena = arena;
+        if (quadArena == null || drawCount == 0 || vitrailStarts.length < drawCount) {
+            return false;
+        }
+        if (!com.mojang.blaze3d.systems.RenderSystem.isOnRenderThread()) {
+            return false;
+        }
+        GpuBuffer indices = vitrailIndexBuffer(vitrailMaxQuads);
+        QuadArena far = distantArena;
+        if (far == null) {
+            return false;
+        }
+        return net.mistraly.uno.compat.VitrailBridge.hand(far.buffer, indices, drawCount,
+            vitrailCornerX, vitrailCornerY, vitrailCornerZ, vitrailStarts, vitrailOpaque, vitrailWater);
     }
 
     private static void draw(RenderPass pass, RenderPipeline pipeline, int firstCommand, int commandCount) {
@@ -527,6 +597,39 @@ public final class LodRenderer {
             pass.drawIndexedIndirect(commandBuffer.slice((long) (MODEL_COMMANDS + done) * COMMAND_BYTES, (long) count * COMMAND_BYTES), count);
         }
         pass.popDebugGroup();
+    }
+
+    private static GpuBuffer vitrailIndexBuffer(int quads) {
+        if (vitrailIndices == null || vitrailIndexQuads < quads) {
+            if (vitrailIndices != null) {
+                vitrailIndices.close();
+            }
+            vitrailIndexQuads = Math.max(Mth.smallestEncompassingPowerOfTwo(Math.max(quads, 1)), 4096);
+            ByteBuffer data = MemoryUtil.memAlloc(vitrailIndexQuads * 6 * 4).order(ByteOrder.nativeOrder());
+            try {
+                for (int q = 0; q < vitrailIndexQuads; q++) {
+                    int v = q * 4;
+                    data.putInt(v).putInt(v + 1).putInt(v + 2).putInt(v + 2).putInt(v + 3).putInt(v);
+                }
+                data.flip();
+                vitrailIndices = RenderSystem.getDevice().createBuffer(() -> "Uno far terrain indices", GpuBuffer.USAGE_INDEX, data);
+            } finally {
+                MemoryUtil.memFree(data);
+            }
+        }
+        return vitrailIndices;
+    }
+
+    /// Records one section for Vitrail: its corner and where its opaque and water quads start and how many there are.
+    private static void recordForVitrail(int i, Node node, long key) {
+        vitrailCornerX[i] = LodKey.originX(key);
+        vitrailCornerY[i] = LodKey.originY(key);
+        vitrailCornerZ[i] = LodKey.originZ(key);
+        // The pack reads the far-terrain arena, so the start is where this section's far mesh landed.
+        vitrailStarts[i] = node.distantStart;
+        vitrailOpaque[i] = node.distantStart >= 0 ? node.quadCount - node.fluidCount : 0;
+        vitrailWater[i] = node.distantStart >= 0 ? node.fluidCount : 0;
+        vitrailMaxQuads = Math.max(vitrailMaxQuads, Math.max(vitrailOpaque[i], vitrailWater[i]));
     }
 
     // ---------------------------------------------------------------- chunk fade-in
@@ -612,6 +715,13 @@ public final class LodRenderer {
                 int start = allocate(quadArena, quads);
                 if (start >= 0) {
                     quadArena.upload(start, result.quads());
+                    if (VITRAIL && result.distant() != null && distantArena != null) {
+                        int distantStart = distantArena.allocate(quads);
+                        if (distantStart >= 0) {
+                            distantArena.upload(distantStart, result.distant());
+                            node.distantStart = distantStart;
+                        }
+                    }
                     node.quadStart = start;
                     node.quadCount = quads;
                     node.directionCounts = result.directionCounts();

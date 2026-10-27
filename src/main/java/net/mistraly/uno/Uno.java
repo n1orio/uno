@@ -23,6 +23,7 @@ import net.mistraly.uno.world.LodWorld;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.event.AddClientReloadListenersEvent;
@@ -56,6 +57,12 @@ public final class Uno {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
 
         modBus.addListener(LodRenderer::registerPipelines);
+        if (ModList.get().isLoaded("vitrail")) {
+            net.mistraly.uno.compat.VitrailBridge.register(
+                () -> UnoConfig.ENABLED.get() && LodRenderer.isActive(),
+                () -> UnoConfig.LOD_DISTANCE.get(),
+                () -> LodRenderer.farPlane());
+        }
         modBus.addListener(Uno::addReloadListener);
 
         NeoForge.EVENT_BUS.addListener(Uno::onLevelLoad);
@@ -91,6 +98,7 @@ public final class Uno {
         LOGGER.info("Uno: opening LOD storage {}", dir);
         PENDING_LOADS.clear();
         LodWorld world = new LodWorld(dir, level.registryAccess().lookupOrThrow(Registries.BIOME), UnoConfig.SECTION_CACHE.get(), UnoConfig.meshThreads());
+        world.buildDistant = ModList.get().isLoaded("vitrail");
         LodRenderer.attach(world, level.getMinY(), level.getMaxY() + 1);
     }
 

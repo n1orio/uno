@@ -16,12 +16,13 @@ import org.lwjgl.system.MemoryUtil;
 /// word 0: x 0-4, y 5-9, z 10-14 (min corner), width-1 15-19, height-1 20-24, direction 25-27, sky light 28-31;
 /// word 1: material from {@link BlockMaterials}: material index 0-15, tint RGB565 16-31;
 /// word 2: block light 0-3, ambient occlusion 4-11 (2 bits per corner, corner = cu + 2 * cv, 3 = open);
-/// word 3: unused.
+/// word 3: far terrain block category for shader packs (see {@link DistantMaterials}).
 /// Width runs along u and height along v: Y faces u=x v=z, Z faces u=x v=y, X faces u=z v=y.
 public final class Mesher {
     public static final int QUAD_BYTES = 16;
     private static final int S = LodKey.SIZE;
-    // face key: material 0-31, sky 32-35, block light 36-39, marker 40, fluid 41, ambient occlusion 42-49
+    // face key: material 0-31, sky 32-35, block light 36-39, marker 40, fluid 41, ambient occlusion 42-49,
+    // far terrain category 50-57
     private static final long MARKER = 1L << 40;
     private static final long FLUID = 1L << 41;
     private static final int AO_OPEN = 0xFF;
@@ -39,6 +40,11 @@ public final class Mesher {
     private final IntArrayList fluidQuads = new IntArrayList();
     private final int[] directionCounts = new int[6];
     private int occluderTop;
+    /// The same quads as far terrain for a shader pack (Vitrail), when asked for.
+    private @Nullable ByteBuffer distant;
+    private int distantOpaque;
+    private int distantWater;
+    public static final int DISTANT_QUAD_BYTES = 4 * 16;
     private int fluidCount;
     /// Real model geometry (level 0 only), {@link #MODEL_VERTEX_BYTES} per vertex, 4 vertices per quad.
     private @Nullable ByteBuffer models;
@@ -83,6 +89,32 @@ public final class Mesher {
     /// Returns a direct buffer owned by the caller (free with MemoryUtil), or null when the section has no faces.
     /// Opaque quads come first, grouped by direction, fluid quads (drawn translucent) last.
     public @Nullable ByteBuffer mesh(int[] data, @Nullable int[][] neighbors, int level) {
+        return this.mesh(data, neighbors, level, false);
+    }
+
+    /// Far terrain mesh of the last {@link #mesh} call that asked for one, owned by the caller (free with
+    /// MemoryUtil): Distant Horizons' vertex layout, opaque quads first, then {@link #distantWater()} water quads.
+    public @Nullable ByteBuffer takeDistant() {
+        ByteBuffer result = this.distant;
+        this.distant = null;
+        return result;
+    }
+
+    public int distantOpaque() {
+        return this.distantOpaque;
+    }
+
+    public int distantWater() {
+        return this.distantWater;
+    }
+
+    public @Nullable ByteBuffer mesh(int[] data, @Nullable int[][] neighbors, int level, boolean buildDistant) {
+        if (this.distant != null) {
+            MemoryUtil.memFree(this.distant);
+        }
+        this.distant = null;
+        this.distantOpaque = 0;
+        this.distantWater = 0;
         for (IntArrayList list : this.quads) {
             list.clear();
         }
@@ -110,6 +142,12 @@ public final class Mesher {
         if (ints == 0) {
             return null;
         }
+        this.distant = null;
+        this.distantOpaque = 0;
+        this.distantWater = 0;
+        if (buildDistant) {
+            this.buildDistant(level);
+        }
         ByteBuffer out = MemoryUtil.memAlloc(ints * 4).order(ByteOrder.LITTLE_ENDIAN);
         for (IntArrayList list : this.quads) {
             for (int i = 0; i < list.size(); i++) {
@@ -121,6 +159,104 @@ public final class Mesher {
         }
         out.flip();
         return out;
+    }
+
+    // corners of the unit cube per face, the same table and order as the LOD vertex shader
+    private static final int PACKED_X = 0xF03CC3;
+    private static final int PACKED_Y = 0x6666F0;
+    private static final int PACKED_Z = 0xC3F066;
+
+    /// Expands the quads into Distant Horizons' vertex layout (16 bytes: position as 3 shorts of blocks inside
+    /// the section, meta = sky | block << 4, colour RGBA8, category, face, 2 unused), for a shader pack's
+    /// far terrain programs. The colour is the far colour of the material with its tint, darkened by the
+    /// quad's ambient occlusion per corner; the pack does the lighting.
+    private void buildDistant(int level) {
+        int quadCount = this.fluidQuads.size() / 4;
+        for (IntArrayList list : this.quads) {
+            quadCount += list.size() / 4;
+        }
+        if (quadCount == 0) {
+            return;
+        }
+        ByteBuffer out = MemoryUtil.memAlloc(quadCount * DISTANT_QUAD_BYTES).order(ByteOrder.LITTLE_ENDIAN);
+        it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap colours = new it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap();
+        int scale = 1 << level;
+        for (IntArrayList list : this.quads) {
+            this.distantOpaque += this.writeDistant(out, list, scale, colours);
+        }
+        this.distantWater = this.writeDistant(out, this.fluidQuads, scale, colours);
+        out.flip();
+        this.distant = out;
+    }
+
+    private int writeDistant(ByteBuffer out, IntArrayList list, int scale, it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap colours) {
+        int count = list.size() / 4;
+        for (int q = 0; q < count; q++) {
+            int word0 = list.getInt(q * 4);
+            int word1 = list.getInt(q * 4 + 1);
+            int word2 = list.getInt(q * 4 + 2);
+            int category = list.getInt(q * 4 + 3);
+            int x = word0 & 31, y = (word0 >> 5) & 31, z = (word0 >> 10) & 31;
+            int w = ((word0 >> 15) & 31) + 1, h = ((word0 >> 20) & 31) + 1;
+            int dir = (word0 >> 25) & 7;
+            int sky = word0 >>> 28;
+            int block = word2 & 15;
+            int ao = (word2 >> 4) & 0xFF;
+            int sx = dir < 2 ? w : (dir < 4 ? w : 1);
+            int sy = dir < 2 ? 1 : h;
+            int sz = dir < 2 ? h : (dir < 4 ? 1 : w);
+            int colour = colours.getOrDefault(word1, Integer.MIN_VALUE);
+            if (colour == Integer.MIN_VALUE) {
+                colour = farColour(word1);
+                colours.put(word1, colour);
+            }
+            for (int corner = 0; corner < 4; corner++) {
+                int bit = dir * 4 + corner;
+                int ux = (PACKED_X >> bit) & 1, uy = (PACKED_Y >> bit) & 1, uz = (PACKED_Z >> bit) & 1;
+                out.putShort((short) ((x + ux * sx) * scale));
+                out.putShort((short) ((y + uy * sy) * scale));
+                out.putShort((short) ((z + uz * sz) * scale));
+                out.putShort((short) (sky | (block << 4)));
+                int cu = dir < 2 ? ux : (dir < 4 ? ux : uz);
+                int cv = dir < 2 ? uz : uy;
+                float shade = 0.55F + 0.15F * ((ao >> (2 * (cu + 2 * cv))) & 3);
+                out.put((byte) Math.min(255, (int) (((colour >> 16) & 255) * shade)));
+                out.put((byte) Math.min(255, (int) (((colour >> 8) & 255) * shade)));
+                out.put((byte) Math.min(255, (int) ((colour & 255) * shade)));
+                out.put((byte) 255);
+                out.put((byte) category);
+                out.put((byte) dir);
+                out.putShort((short) 0);
+            }
+        }
+        return count;
+    }
+
+    /// The far colour the LOD shader uses: both layers' average colours with their tints, mixed by coverage.
+    private static int farColour(int word1) {
+        BlockMaterials.MaterialEntry entry = BlockMaterials.material(word1 & 0xFFFF);
+        int tint565 = word1 >>> 16;
+        float tr = ((tint565 >> 11) & 31) / 31.0F, tg = ((tint565 >> 5) & 63) / 63.0F, tb = (tint565 & 31) / 31.0F;
+        int flags = entry.flags();
+        float br = ((entry.baseAverage() >> 16) & 255) / 255.0F, bg = ((entry.baseAverage() >> 8) & 255) / 255.0F, bb = (entry.baseAverage() & 255) / 255.0F;
+        if ((flags & BlockMaterials.TINT_BASE) != 0) {
+            br *= tr;
+            bg *= tg;
+            bb *= tb;
+        }
+        if (entry.hasOverlay()) {
+            float coverage = ((entry.overlayAverage() >>> 24) & 255) / 255.0F;
+            float or = ((entry.overlayAverage() >> 16) & 255) / 255.0F, og = ((entry.overlayAverage() >> 8) & 255) / 255.0F, ob = (entry.overlayAverage() & 255) / 255.0F;
+            if ((flags & BlockMaterials.TINT_OVERLAY) != 0) {
+                or *= tr;
+                og *= tg;
+                ob *= tb;
+            }
+            br += (or - br) * coverage;
+            bg += (og - bg) * coverage;
+            bb += (ob - bb) * coverage;
+        }
+        return ((int) (br * 255) << 16) | ((int) (bg * 255) << 8) | (int) (bb * 255);
     }
 
     /// Voxel coordinates of (slice, u, v) for direction d.
@@ -181,8 +317,9 @@ public final class Mesher {
                     }
                     if (visible) {
                         int material = BlockMaterials.material(this.ids, selfState, Voxel.biome(self), d);
+                        long category = DistantMaterials.of(this.ids, selfState);
                         key = MARKER | (BlockKind.fluid(selfKind) ? FLUID : 0) | ((long) ao << 42) | ((long) block << 36)
-                            | ((long) sky << 32) | (material & 0xFFFFFFFFL);
+                            | ((long) sky << 32) | (material & 0xFFFFFFFFL) | (category << 50);
                         any = true;
                     }
                 }
@@ -392,7 +529,7 @@ public final class Mesher {
         target.add(x | (y << 5) | (z << 10) | ((w - 1) << 15) | ((h - 1) << 20) | (d << 25) | (sky << 28));
         target.add((int) key);
         target.add(block | (ao << 4));
-        target.add(0);
+        target.add((int) (key >>> 50) & 0xFF);
     }
 
     /// The layer of `section` that touches a neighbour lying in direction d, in that neighbour's (u, v) layout.

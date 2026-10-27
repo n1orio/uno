@@ -26,7 +26,7 @@ public final class LodWorld implements AutoCloseable {
     /// `directionCounts` are the opaque quads per face direction, stored in that order before the fluid ones.
     public record MeshResult(
         long key, int version, @Nullable ByteBuffer quads, int[] directionCounts, int fluidCount, @Nullable ByteBuffer models, int modelCount,
-        int occluderTop
+        int occluderTop, @Nullable ByteBuffer distant, int distantOpaque, int distantWater
     ) {
         static final int[] NO_DIRECTIONS = new int[6];
 
@@ -40,6 +40,9 @@ public final class LodWorld implements AutoCloseable {
             }
             if (this.models != null) {
                 MemoryUtil.memFree(this.models);
+            }
+            if (this.distant != null) {
+                MemoryUtil.memFree(this.distant);
             }
         }
     }
@@ -62,6 +65,8 @@ public final class LodWorld implements AutoCloseable {
     private final ThreadLocal<Mesher> mesherPerThread;
     private final AtomicLong order = new AtomicLong();
     private volatile boolean closed;
+    /// Whether meshes also carry a far terrain mesh for a shader pack (Vitrail); set by the renderer.
+    public volatile boolean buildDistant;
 
     /// Section keys whose voxels changed; drained by the renderer.
     public final Queue<Long> changedSections = new ConcurrentLinkedQueue<>();
@@ -102,7 +107,7 @@ public final class LodWorld implements AutoCloseable {
             }
             LodSection section = this.store.get(key);
             if (section == null || section.isEmpty()) {
-                this.meshResults.add(new MeshResult(key, section == null ? 0 : section.version, null, MeshResult.NO_DIRECTIONS, 0, null, 0, -1));
+                this.meshResults.add(new MeshResult(key, section == null ? 0 : section.version, null, MeshResult.NO_DIRECTIONS, 0, null, 0, -1, null, 0, 0));
                 return;
             }
             int[][] neighbors = new int[6][];
@@ -132,10 +137,10 @@ public final class LodWorld implements AutoCloseable {
         }
         try {
             Mesher mesher = this.mesherPerThread.get();
-            ByteBuffer quads = mesher.mesh(job.data, job.neighbors, LodKey.level(job.key));
+            ByteBuffer quads = mesher.mesh(job.data, job.neighbors, LodKey.level(job.key), this.buildDistant);
             MeshResult result = new MeshResult(
                 job.key, job.version, quads, mesher.directionCounts(), quads == null ? 0 : mesher.fluidCount(), mesher.takeModels(), mesher.modelCount(),
-                mesher.occluderTop()
+                mesher.occluderTop(), mesher.takeDistant(), mesher.distantOpaque(), mesher.distantWater()
             );
             if (this.closed) {
                 result.free();
@@ -144,7 +149,7 @@ public final class LodWorld implements AutoCloseable {
             this.meshResults.add(result);
         } catch (RuntimeException e) {
             Uno.LOGGER.error("Meshing {} failed", LodKey.toString(job.key), e);
-            this.meshResults.add(new MeshResult(job.key, job.version, null, MeshResult.NO_DIRECTIONS, 0, null, 0, -1));
+            this.meshResults.add(new MeshResult(job.key, job.version, null, MeshResult.NO_DIRECTIONS, 0, null, 0, -1, null, 0, 0));
         }
     }
 
