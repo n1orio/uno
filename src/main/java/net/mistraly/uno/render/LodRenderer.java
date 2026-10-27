@@ -203,9 +203,9 @@ public final class LodRenderer {
     private static GpuBuffer[] vitrailOpaqueBuffers = new GpuBuffer[0];
     private static GpuBuffer[] vitrailWaterBuffers = new GpuBuffer[0];
     private static boolean handedToVitrail;
-    /// With a pack drawing, LODs are not cut away under vanilla terrain: the pack dissolves the edge of the vanilla
-    /// chunks into the far terrain it expects behind them (Distant Horizons draws there), and vanilla paints over the
-    /// rest anyway. Cut away, the dissolved edge was a hole.
+    /// With a pack drawing, sections under vanilla terrain are still selected, for the pack: it dissolves the edge of
+    /// the vanilla chunks into the far terrain it expects behind them (Distant Horizons draws there). Without them the
+    /// dissolved edge was a hole. Uno's own textured pass keeps cutting them away in its shader.
     private static boolean packCut() {
         return VITRAIL && net.mistraly.uno.compat.VitrailBridge.packActive();
     }
@@ -435,7 +435,7 @@ public final class LodRenderer {
                 .putInt(maskValid ? sectionMask.minSection() * 16 : 0)
                 .putInt(maskValid ? sectionMask.originZ * 16 : 0)
                 .putInt(maskValid ? sectionMask.size : 0);
-            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(packCut() ? 1 : 0).putInt(0);
+            data.putInt(maskValid ? sectionMask.sections() : 0).putInt(maskValid ? 1 : 0).putInt(0).putInt(0);
         }
         RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS).requestIndexCount(maxQuadsPerDraw * 6);
     }
@@ -481,12 +481,11 @@ public final class LodRenderer {
                     recordForVitrail(i, node, key);
                 }
                 if (splitForPack) {
+                    // the pack draws every section, water included; Uno adds textures over the near ones
                     int span = LodKey.span(LodKey.level(key));
                     if (horizontalDistance(camera.pos, LodKey.originX(key), LodKey.originZ(key), span, false) >= packFrom) {
                         continue;
                     }
-                    vitrailOpaque[i] = 0;
-                    vitrailWater[i] = 0;
                 }
                 if (node.quadStart >= 0) {
                     int visible = visibleDirections(camera.pos, key);
@@ -514,7 +513,7 @@ public final class LodRenderer {
                         }
                     }
                 }
-                if (node.fluidCount > 0) {
+                if (node.fluidCount > 0 && !splitForPack) {
                     commandData.position((WATER_COMMANDS + waterCount) * COMMAND_BYTES);
                     commandData.putInt(node.fluidCount * 6).putInt(1).putInt(0).putInt((node.quadStart + opaque) * 4).putInt(i);
                     waterCount++;

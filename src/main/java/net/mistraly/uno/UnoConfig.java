@@ -22,7 +22,7 @@ public final class UnoConfig {
         .defineInRange("textureDistance", 1024, 0, 16384);
 
     public static final ModConfigSpec.IntValue SHADER_TEXTURE_DISTANCE = BUILDER
-        .comment("With a Vitrail shader pack: LODs closer than this (blocks, scaled by zoom) are drawn by Uno with block textures; further ones go to the pack, which draws them untextured with its own light")
+        .comment("With a Vitrail shader pack: LODs closer than this (blocks, scaled by zoom) also get Uno's block textures drawn over them, without the pack's light and shadows. 0 = the pack draws every LOD itself, like Distant Horizons")
         .defineInRange("shaderTextureDistance", 256, 0, 16384);
 
     public static final ModConfigSpec.BooleanValue OCCLUSION_CULLING = BUILDER
